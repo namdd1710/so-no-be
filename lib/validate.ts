@@ -3,7 +3,7 @@
  */
 
 import { ApiError } from './http';
-import { isValidIsoDate, todayInTimeZone } from './ledger';
+import { isValidIsoDate, isValidMonth, todayInTimeZone, type LedgerStatus } from './ledger';
 
 export type StringOptions = {
   field: string;
@@ -68,7 +68,47 @@ export function parseEntryDate(value: unknown, today: string = todayInTimeZone()
 /** Tham số `month=YYYY-MM` (không bắt buộc). */
 export function parseMonthParam(value: string | null): string | null {
   if (!value) return null;
-  return /^\d{4}-(0[1-9]|1[0-2])$/.test(value) ? value : null;
+  if (!isValidMonth(value)) throw new ApiError(400, 'INVALID_MONTH', 'month không hợp lệ (YYYY-MM)');
+  return value;
+}
+
+export function parseLedgerStatus(value: string | null): LedgerStatus {
+  if (!value || value === 'all') return 'all';
+  if (value === 'unsettled' || value === 'settled') return value;
+  throw new ApiError(400, 'INVALID_STATUS', 'status phải là unsettled, settled hoặc all');
+}
+
+export function parseOptionalIsoDateParam(value: string | null, field: string): string | null {
+  if (!value) return null;
+  if (!isValidIsoDate(value)) throw new ApiError(400, 'INVALID_DATE', `${field} không hợp lệ (YYYY-MM-DD)`);
+  return value;
+}
+
+export function parsePageParam(value: string | null): number {
+  if (!value) return 1;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1) throw new ApiError(400, 'INVALID_PAGE', 'page phải là số nguyên ≥ 1');
+  return n;
+}
+
+export function parsePageSizeParam(value: string | null): number {
+  if (!value) return 10;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1 || n > 50) {
+    throw new ApiError(400, 'INVALID_PAGE_SIZE', 'pageSize phải từ 1 đến 50');
+  }
+  return n;
+}
+
+export function parseLedgerQuery(searchParams: URLSearchParams) {
+  const status = parseLedgerStatus(searchParams.get('status'));
+  const month = parseMonthParam(searchParams.get('month'));
+  const from = parseOptionalIsoDateParam(searchParams.get('from'), 'from');
+  const to = parseOptionalIsoDateParam(searchParams.get('to'), 'to');
+  if (from && to && from > to) throw new ApiError(400, 'INVALID_RANGE', 'from phải ≤ to');
+  const page = parsePageParam(searchParams.get('page'));
+  const pageSize = parsePageSizeParam(searchParams.get('pageSize'));
+  return { status, month, from, to, page, pageSize };
 }
 
 export function parseBooleanish(value: unknown): boolean | null {
