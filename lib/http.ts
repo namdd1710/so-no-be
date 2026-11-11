@@ -4,7 +4,10 @@
  * Nguyên tắc: mọi response API đều `Cache-Control: no-store` (BRIEF §9).
  */
 
+import { isAllowedOrigin } from './origin';
 import { readSessionCookie, verifySessionToken, type SessionPayload } from './session';
+
+export { isAllowedOrigin };
 
 export function json(data: unknown, init: ResponseInit = {}): Response {
   const headers = new Headers(init.headers);
@@ -56,31 +59,7 @@ export async function getSession(request: Request): Promise<SessionPayload | nul
 
 /* ------------------------------- Origin ------------------------------ */
 
-function allowedOrigins(): Set<string> {
-  const set = new Set<string>();
-  for (const raw of (process.env.ALLOWED_ORIGINS ?? '').split(',')) {
-    const value = raw.trim().replace(/\/+$/, '');
-    if (value) set.add(value);
-  }
-  const appBase = (process.env.APP_BASE_URL ?? '').trim().replace(/\/+$/, '');
-  if (appBase) set.add(appBase);
-  return set;
-}
-
-/**
- * Kiểm tra CSRF: request ghi phải có `Origin` khớp host hoặc danh sách cho phép.
- * Không có Origin → từ chối.
- */
-export function isAllowedOrigin(request: Request): boolean {
-  const origin = request.headers.get('origin');
-  if (!origin) return false;
-  const normalized = origin.replace(/\/+$/, '');
-  if (allowedOrigins().has(normalized)) return true;
-
-  const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host');
-  if (!host) return false;
-  return normalized === `https://${host}` || normalized === `http://${host}`;
-}
+// Luật so khớp Origin nằm ở `lib/origin.ts` (module thuần, test được độc lập).
 
 export function clientIp(request: Request): string {
   const forwarded = request.headers.get('x-forwarded-for');

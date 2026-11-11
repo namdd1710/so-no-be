@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start -p 3001",
     "typecheck": "tsc --noEmit",
-    "test": "node --test tests/ledger.test.ts",
+    "test": "node --test tests/ledger.test.ts tests/origin.test.ts",
     "test:api": "node tests/integration.mjs",
     "seed": "node --env-file=.env.local scripts/seed.mjs",
     "dev:db": "node scripts/dev-db.mjs"

@@ -54,7 +54,7 @@ npm run test:api   # 50+ check HTTP thật: bật Mongo in-memory + next dev
 | `ADMIN_RECOVERY_KEY` | ✅ | Chuỗi bí mật **bạn tự đặt**; nhập đúng key này + mật khẩu mới thì mới đổi được mật khẩu. Để trống = tắt tính năng. |
 | `SESSION_SECRET` | ✅ | ≥16 ký tự, nên là 64 hex |
 | `APP_BASE_URL` | ✅ | URL công khai của **FE**, dùng để dựng link `/s/{code}` |
-| `ALLOWED_ORIGINS` | ✅ | Origin của FE, phân tách bằng dấu phẩy (CSRF) |
+| `ALLOWED_ORIGINS` | ✅ | Origin được phép gọi API, phân tách bằng dấu phẩy (chống CSRF). Hỗ trợ `*` = mọi nguồn, `https://*.vercel.app` = mọi domain con |
 
 ## 4. API
 
@@ -156,6 +156,8 @@ không nên chạy trên Vercel).
 - Vercel **Deployment Protection** phải tắt với môi trường Production, nếu không con nợ mở link sẽ bị chặn đăng nhập.
 - Preview deployment có domain riêng: muốn test login trên preview thì thêm domain đó vào `ALLOWED_ORIGINS`,
   còn không thì chỉ dùng domain Production (đơn giản nhất).
+- Mở cho nhiều nguồn: `ALLOWED_ORIGINS=https://*.vercel.app` (mọi domain con) hoặc `ALLOWED_ORIGINS=*`
+  (mọi nguồn, kể cả request không gửi `Origin` như curl/Postman — coi như tắt chống CSRF, chỉ dùng khi cần).
 - `MONGODB_DNS_SERVERS` để trống trên Vercel — chỉ cần cho máy local bị lỗi resolver SRV.
 - Node: `engines.node >= 20` (Vercel chọn 22.x).
 
