@@ -11,14 +11,13 @@ Frontend tương ứng: [`so-no-fe`](../so-no-fe) — Next.js + Material UI.
 ```bash
 npm install
 
-# 1) Sinh hash mật khẩu admin (copy dòng ADMIN_PASSWORD_HASH in ra)
-npm run hash-password -- "mat-khau-cua-ban"
-
-# 2) Sinh session secret
-node -e "console.log('SESSION_SECRET=' + require('crypto').randomBytes(32).toString('hex'))"
-
-# 3) Tạo .env.local từ .env.example rồi điền 3 giá trị trên
+# 1) Tạo .env.local từ .env.example
 cp .env.example .env.local
+
+# 2) Điền vào .env.local:
+#    ADMIN_PASSWORD=<mật khẩu đăng nhập, chữ thường>
+#    ADMIN_RECOVERY_KEY=<chuỗi bí mật tự đặt, dùng để đổi mật khẩu khi quên>
+#    SESSION_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
 
 npm run dev        # http://127.0.0.1:3001
 ```
@@ -50,18 +49,18 @@ npm run test:api   # 50+ check HTTP thật: bật Mongo in-memory + next dev
 |---|---|---|
 | `MONGODB_URI` | ✅ | Atlas, database riêng `so_no` |
 | `MONGODB_DB` | | mặc định `so_no` |
-| `ADMIN_PASSWORD_HASH` | ✅ | `scrypt:<N>:<r>:<p>:<salt>:<hash>` — sinh bằng `npm run hash-password` |
+| `ADMIN_PASSWORD` | ✅ | **Mật khẩu chữ thường** (không phải hash). Là mật khẩu khởi tạo. |
+| `ADMIN_RECOVERY_KEY` | ✅ | Chuỗi bí mật **bạn tự đặt**; nhập đúng key này + mật khẩu mới thì mới đổi được mật khẩu. Để trống = tắt tính năng. |
 | `SESSION_SECRET` | ✅ | ≥16 ký tự, nên là 64 hex |
 | `APP_BASE_URL` | ✅ | URL công khai của **FE**, dùng để dựng link `/s/{code}` |
 | `ALLOWED_ORIGINS` | ✅ | Origin của FE, phân tách bằng dấu phẩy (CSRF) |
-
-> Hash dùng dấu `:` chứ không dùng `$`, vì `.env` của Next/Vercel có thể expand `$` và làm hỏng giá trị.
 
 ## 4. API
 
 ```
 POST   /api/auth/login              { password }              → Set-Cookie HttpOnly
 POST   /api/auth/logout
+POST   /api/auth/password           { recoveryKey, newPassword } → đổi mật khẩu khi quên
 GET    /api/auth/session                                       → { authenticated }
 GET    /api/health                                             → ping Mongo
 
@@ -107,6 +106,26 @@ Ghi chú triển khai (chặt hơn BRIEF một chút, để sổ không bao gi�
 - Session: cookie `sn_session` = payload + HMAC-SHA256 (`SESSION_SECRET`), `HttpOnly; SameSite=Lax; Secure` (production), 30 ngày.
 - `middleware.ts` chặn mọi request ghi khi chưa có session; mỗi handler kiểm tra lại session + `Origin`.
 - Đăng nhập sai 5 lần / 15 phút / IP thì chặn tạm.
+
+### Đổi mật khẩu khi quên
+
+Mật khẩu có 2 nguồn, theo thứ tự ưu tiên:
+
+1. `settings.passwordHash` trong Mongo — có sau khi đã đổi mật khẩu;
+2. `ADMIN_PASSWORD` trong env — mật khẩu khởi tạo.
+
+`POST /api/auth/password` **(không cần đăng nhập)** nhận `{ recoveryKey, newPassword }`:
+
+- `recoveryKey` phải trùng value của env `ADMIN_RECOVERY_KEY` (so sánh timing-safe);
+- `newPassword` ≥ 8 ký tự, băm scrypt rồi ghi vào `settings` → **đổi được ngay trên production, không cần redeploy**;
+- sai key 5 lần / 15 phút / IP thì chặn tạm; vẫn kiểm tra `Origin`;
+- chưa đặt `ADMIN_RECOVERY_KEY` thì endpoint trả `503 RECOVERY_DISABLED` — tính năng tắt hoàn toàn.
+
+UI: nút **Quên mật khẩu?** ngay dưới form đăng nhập.
+
+> Sau khi đổi, `ADMIN_PASSWORD` trong env **không còn tác dụng** (chỉ là mật khẩu khởi tạo cho môi trường mới).
+> Các session đang đăng nhập vẫn dùng được tới khi hết hạn 30 ngày; muốn đá hết ngay thì đổi `SESSION_SECRET` rồi redeploy.
+> Muốn quay về mật khẩu trong env: xoá document `_id: "admin"` trong collection `settings`.
 - `/api/public/*`: 20 req/phút/IP, `no-store`, 404 giống nhau cho mọi trường hợp sai.
 - Trang công khai chỉ trả tên, khoản phát sinh, tổng và lịch sử đã trả — **không** SĐT, không ghi chú nội bộ.
 
@@ -122,7 +141,8 @@ Ghi chú triển khai (chặt hơn BRIEF một chút, để sổ không bao gi�
 app/api/**/route.ts   # endpoint (Node runtime)
 lib/ledger.ts         # toàn bộ logic tính tổng + chốt (hàm thuần)
 lib/service.ts        # query Mongo + dựng payload
-lib/auth.ts           # scrypt password hash
+lib/auth.ts           # băm/so sánh mật khẩu, recovery key
+lib/admin-account.ts  # mật khẩu admin: env (khởi tạo) hoặc hash trong Mongo
 lib/session.ts        # HMAC session (Edge-safe, dùng chung với middleware)
 lib/db.ts             # MongoClient singleton + index + transaction
 lib/http.ts           # JSON/no-store, session, Origin, rate limit

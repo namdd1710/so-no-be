@@ -1,13 +1,12 @@
 /**
- * lib/auth.ts — Node runtime: băm & kiểm tra mật khẩu admin (BRIEF §9).
+ * lib/auth.ts — mật khẩu admin.
  *
- * Dùng `scrypt` có sẵn trong Node, không cần thư viện ngoài.
- * Định dạng `ADMIN_PASSWORD_HASH`:
- *   scrypt:<N>:<r>:<p>:<salt-hex>:<hash-hex>
+ * Mật khẩu KHỞI TẠO nằm ở env `ADMIN_PASSWORD` (dạng chữ thường, không phải hash).
+ * Khi admin đổi mật khẩu (quên mật khẩu → dùng `ADMIN_RECOVERY_KEY`), mật khẩu mới
+ * được băm bằng scrypt và lưu trong Mongo (`settings.passwordHash`) — nhờ vậy đổi
+ * được ngay trên production mà không cần redeploy.
  *
- * Dùng dấu `:` (không dùng `$`) vì `.env` của Next/Vercel có thể expand `$`
- * và làm hỏng giá trị hash.
- * Sinh bằng: `npm run hash-password -- "mat-khau-cua-ban"`
+ * Định dạng hash lưu trong DB: `scrypt:<N>:<r>:<p>:<salt-hex>:<hash-hex>`
  */
 
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
@@ -16,6 +15,9 @@ const DEFAULT_N = 16384;
 const DEFAULT_R = 8;
 const DEFAULT_P = 1;
 const KEY_LENGTH = 64;
+
+export const MIN_PASSWORD_LENGTH = 8;
+export const MAX_PASSWORD_LENGTH = 200;
 
 export function hashPassword(password: string, params: { N?: number; r?: number; p?: number } = {}): string {
   const N = params.N ?? DEFAULT_N;
@@ -59,14 +61,48 @@ export function verifyPasswordHash(password: string, stored: string): boolean {
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
-/** Kiểm tra mật khẩu admin với `ADMIN_PASSWORD_HASH` trong env. */
-export function verifyAdminPassword(password: string): boolean {
-  const stored = process.env.ADMIN_PASSWORD_HASH;
-  if (!stored) {
-    console.error('[auth] ADMIN_PASSWORD_HASH chưa được cấu hình — từ chối đăng nhập.');
+/** So sánh chuỗi không lộ thông tin qua thời gian phản hồi. */
+export function safeCompare(input: string, expected: string): boolean {
+  const left = Buffer.from(input.normalize('NFKC'), 'utf8');
+  const right = Buffer.from(expected.normalize('NFKC'), 'utf8');
+  if (left.length !== right.length) return false;
+  return timingSafeEqual(left, right);
+}
+
+/** Kiểm tra mật khẩu khởi tạo trong env `ADMIN_PASSWORD`. */
+export function verifyEnvPassword(password: string): boolean {
+  const expected = process.env.ADMIN_PASSWORD;
+  if (!expected) {
+    console.error('[auth] ADMIN_PASSWORD chưa được cấu hình — từ chối đăng nhập.');
     return false;
   }
-  return verifyPasswordHash(password, stored);
+  return safeCompare(password, expected);
+}
+
+/**
+ * Key khôi phục lấy từ env `ADMIN_RECOVERY_KEY` (bạn tự đặt tên biến trong .env).
+ * Chưa cấu hình thì tính năng đổi mật khẩu bị tắt hoàn toàn.
+ */
+export function verifyRecoveryKey(key: string): boolean {
+  const expected = process.env.ADMIN_RECOVERY_KEY;
+  if (!expected) return false;
+  return safeCompare(key, expected);
+}
+
+export function isRecoveryEnabled(): boolean {
+  return Boolean(process.env.ADMIN_RECOVERY_KEY);
+}
+
+export function validateNewPassword(value: unknown): { ok: true; password: string } | { ok: false; message: string } {
+  if (typeof value !== 'string') return { ok: false, message: 'Mật khẩu mới không hợp lệ' };
+  const password = value.trim();
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    return { ok: false, message: `Mật khẩu mới phải có ít nhất ${MIN_PASSWORD_LENGTH} ký tự` };
+  }
+  if (password.length > MAX_PASSWORD_LENGTH) {
+    return { ok: false, message: `Mật khẩu mới tối đa ${MAX_PASSWORD_LENGTH} ký tự` };
+  }
+  return { ok: true, password };
 }
 
 export { SESSION_COOKIE, SESSION_TTL_SECONDS, signSession, verifySessionToken } from './session';

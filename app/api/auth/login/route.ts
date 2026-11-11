@@ -1,4 +1,4 @@
-import { verifyAdminPassword } from '@/lib/auth';
+import { verifyAdminPassword } from '@/lib/admin-account';
 import {
   clearFailures,
   clientIp,
@@ -38,7 +38,7 @@ export const POST = route(async (request: Request) => {
   const password = typeof body.password === 'string' ? body.password : '';
   if (!password) return fail(400, 'MISSING_PASSWORD', 'Vui lòng nhập mật khẩu');
 
-  if (!verifyAdminPassword(password)) {
+  if (!(await verifyAdminPassword(password))) {
     recordFailure(key, WINDOW_MS);
     const used = failureCount(key, WINDOW_MS);
     if (used >= MAX_FAILURES) {

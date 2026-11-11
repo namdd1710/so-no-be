@@ -8,7 +8,7 @@
  */
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import { spawn } from 'node:child_process';
-import { randomBytes, scryptSync } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -17,15 +17,8 @@ const PORT = 3101;
 const BASE = `http://127.0.0.1:${PORT}`;
 const ORIGIN = 'http://localhost:3000';
 const PASSWORD = 'matkhau-test-123';
-
-function hashPassword(password) {
-  const N = 16384;
-  const r = 8;
-  const p = 1;
-  const salt = randomBytes(16);
-  const derived = scryptSync(password.normalize('NFKC'), salt, 64, { N, r, p, maxmem: 128 * N * r * 2 });
-  return `scrypt$${N}$${r}$${p}$${salt.toString('hex')}$${derived.toString('hex')}`;
-}
+const NEW_PASSWORD = 'matkhau-moi-456';
+const RECOVERY_KEY = 'khoa-khoi-phuc-test-2026';
 
 let failures = 0;
 function check(label, condition, extra) {
@@ -97,7 +90,8 @@ const server = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'dev'
     ...process.env,
     MONGODB_URI: uri,
     MONGODB_DB: 'so_no_test',
-    ADMIN_PASSWORD_HASH: hashPassword(PASSWORD),
+    ADMIN_PASSWORD: PASSWORD,
+    ADMIN_RECOVERY_KEY: RECOVERY_KEY,
     SESSION_SECRET: randomBytes(32).toString('hex'),
     APP_BASE_URL: 'http://localhost:3000',
     ALLOWED_ORIGINS: ORIGIN,
@@ -277,6 +271,30 @@ try {
   check('xoá mềm → 200', del.status === 200, del.json);
   const afterDelete = await api('GET', `/api/debtors/${debtor.id}`);
   check('khoản đã xoá biến khỏi tổng', afterDelete.json?.totals?.unsettled === 130000, afterDelete.json?.totals);
+
+  console.log('\n=== Quên mật khẩu (cần recovery key) ===');
+  const noKey = await api('POST', '/api/auth/password', { newPassword: NEW_PASSWORD });
+  check('thiếu khoá khôi phục → 400', noKey.status === 400, noKey.json);
+
+  const wrongKey = await api('POST', '/api/auth/password', { recoveryKey: 'sai-khoa', newPassword: NEW_PASSWORD });
+  check('sai khoá khôi phục → 401', wrongKey.status === 401, wrongKey.json);
+
+  const shortPassword = await api('POST', '/api/auth/password', { recoveryKey: RECOVERY_KEY, newPassword: '123' });
+  check('mật khẩu mới quá ngắn → 400', shortPassword.status === 400, shortPassword.json);
+
+  const changed = await api('POST', '/api/auth/password', { recoveryKey: RECOVERY_KEY, newPassword: NEW_PASSWORD });
+  check('đúng khoá + mật khẩu mới → 200', changed.status === 200, changed.json);
+
+  const oldPassword = await api('POST', '/api/auth/login', { password: PASSWORD });
+  check('mật khẩu cũ không còn dùng được → 401', oldPassword.status === 401, oldPassword.json);
+
+  const newPasswordLogin = await api('POST', '/api/auth/login', { password: NEW_PASSWORD });
+  check('đăng nhập bằng mật khẩu mới → 200', newPasswordLogin.status === 200, newPasswordLogin.json);
+  const newCookie = (newPasswordLogin.setCookie[0] ?? '').split(';')[0];
+  if (newCookie) cookie = newCookie;
+
+  const stillWorks = await api('GET', '/api/debtors');
+  check('session mới dùng được', stillWorks.status === 200, stillWorks.json);
 
   console.log('\n=== Đăng xuất ===');
   const logout = await api('POST', '/api/auth/logout', {});

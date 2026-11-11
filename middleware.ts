@@ -8,7 +8,9 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { readSessionCookie, verifySessionToken } from '@/lib/session';
 
-const PUBLIC_WRITE_ROUTES = new Set(['/api/auth/login', '/api/auth/logout']);
+// `/api/auth/password` phải mở vì đây là đường dùng khi ĐÃ QUÊN mật khẩu;
+// nó tự bảo vệ bằng recovery key + rate limit + kiểm tra Origin.
+const PUBLIC_WRITE_ROUTES = new Set(['/api/auth/login', '/api/auth/logout', '/api/auth/password']);
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 export async function middleware(request: NextRequest) {

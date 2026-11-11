@@ -10,7 +10,6 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test tests/ledger.test.ts",
     "test:api": "node tests/integration.mjs",
-    "hash-password": "node scripts/hash-password.mjs",
     "seed": "node --env-file=.env.local scripts/seed.mjs",
     "dev:db": "node scripts/dev-db.mjs"
   },
