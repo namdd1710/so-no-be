@@ -132,9 +132,32 @@ UI: nút **Quên mật khẩu?** ngay dưới form đăng nhập.
 
 ## 7. Deploy Vercel
 
-1. Tạo project từ repo này, region **sin1**.
-2. Thêm 6 biến môi trường ở mục 3 (`APP_BASE_URL`, `ALLOWED_ORIGINS` trỏ về domain FE).
-3. Atlas M0 + Network Access `0.0.0.0/0` (Vercel không có IP tĩnh), DB user chỉ có quyền trên `so_no`.
+Repo đã có `vercel.json`: pin region **`sin1`** và `installCommand: npm install --ignore-scripts`
+(mongodb-memory-server là devDependency cho test local, có postinstall tải mongod — không cần và
+không nên chạy trên Vercel).
+
+**Chuẩn bị (Atlas)**
+
+1. Cluster M0, database `so_no`, user riêng chỉ có quyền trên `so_no`.
+2. Network Access: `0.0.0.0/0` vì Vercel không có IP tĩnh.
+
+**Deploy**
+
+3. Import repo → Vercel tự nhận framework Next.js, giữ nguyên Root Directory (`.`) và Build Command mặc định.
+4. Thêm biến môi trường (Production): `MONGODB_URI`, `MONGODB_DB=so_no`, `ADMIN_PASSWORD`,
+   `ADMIN_RECOVERY_KEY`, `SESSION_SECRET` (64 hex). `APP_BASE_URL` / `ALLOWED_ORIGINS` điền ở bước 6.
+5. Deploy, rồi mở `https://<be-domain>/api/health` — phải trả `{"ok":true,"db":true}`.
+   Nếu `ok:false`: xem lại Atlas Network Access và `MONGODB_URI`.
+6. Có domain FE rồi thì cập nhật `APP_BASE_URL=https://<fe-domain>` và
+   `ALLOWED_ORIGINS=https://<fe-domain>` → **Redeploy** (link `/s/{code}` dựng từ `APP_BASE_URL`).
+
+**Lưu ý**
+
+- Vercel **Deployment Protection** phải tắt với môi trường Production, nếu không con nợ mở link sẽ bị chặn đăng nhập.
+- Preview deployment có domain riêng: muốn test login trên preview thì thêm domain đó vào `ALLOWED_ORIGINS`,
+  còn không thì chỉ dùng domain Production (đơn giản nhất).
+- `MONGODB_DNS_SERVERS` để trống trên Vercel — chỉ cần cho máy local bị lỗi resolver SRV.
+- Node: `engines.node >= 20` (Vercel chọn 22.x).
 
 ## 8. Cấu trúc
 
