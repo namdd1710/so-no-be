@@ -72,6 +72,16 @@ export function monthOf(isoDate: string): string {
   return isoDate.slice(0, 7);
 }
 
+/** Cộng/trừ số ngày trên lịch UTC, trả về `YYYY-MM-DD`. */
+export function addDaysIso(isoDate: string, deltaDays: number): string {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const utc = new Date(Date.UTC(y, m - 1, d + deltaDays));
+  const yyyy = utc.getUTCFullYear();
+  const mm = String(utc.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(utc.getUTCDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 /* ------------------------------------------------------------------ */
 /* Tổng theo khoảng ngày                                               */
 /* ------------------------------------------------------------------ */
@@ -178,6 +188,58 @@ export function groupByDate<T extends LedgerEntry>(entries: T[]): DayGroup<T>[] 
       count: list.length,
       entries: list,
     }));
+}
+
+export type LedgerStatus = 'unsettled' | 'settled' | 'all';
+
+export type LedgerListFilter = {
+  status: LedgerStatus;
+  month: string | null;
+  from: string | null;
+  to: string | null;
+  today: string;
+  watermark: string | null;
+};
+
+/** Lọc entry theo status + tháng/khoảng ngày (range thắng month). */
+export function filterEntriesByLedgerQuery<T extends LedgerEntry>(entries: T[], filter: LedgerListFilter): T[] {
+  let list = entries;
+
+  if (filter.status === 'unsettled') {
+    list = list.filter((e) => e.date <= filter.today && (filter.watermark === null || e.date > filter.watermark));
+  } else if (filter.status === 'settled') {
+    if (filter.watermark === null) return [];
+    list = list.filter((e) => e.date <= filter.watermark!);
+  }
+
+  const hasRange = Boolean(filter.from || filter.to);
+  if (hasRange) {
+    list = list.filter((e) => {
+      if (filter.from && e.date < filter.from) return false;
+      if (filter.to && e.date > filter.to) return false;
+      return true;
+    });
+  } else if (filter.month) {
+    list = list.filter((e) => e.date.startsWith(filter.month!));
+  }
+
+  return list;
+}
+
+/** Phân trang theo folder ngày; page ngoài biên bị kẹp về trang hợp lệ. */
+export function paginateDayGroups<T>(
+  groups: DayGroup<T>[],
+  page: number,
+  pageSize: number,
+): { groups: DayGroup<T>[]; pagination: { page: number; pageSize: number; totalGroups: number; totalPages: number } } {
+  const totalGroups = groups.length;
+  const totalPages = totalGroups === 0 ? 0 : Math.ceil(totalGroups / pageSize);
+  const safePage = totalPages === 0 ? 1 : Math.min(Math.max(page, 1), totalPages);
+  const start = (safePage - 1) * pageSize;
+  return {
+    groups: groups.slice(start, start + pageSize),
+    pagination: { page: safePage, pageSize, totalGroups, totalPages },
+  };
 }
 
 /** Tổng các entry thuộc một tháng `YYYY-MM`. */

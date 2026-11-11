@@ -4,15 +4,18 @@
  */
 
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { describe, it, test } from 'node:test';
 import {
+  addDaysIso,
   checkSettlement,
   countRange,
+  filterEntriesByLedgerQuery,
   groupByDate,
   isLockedBySettlement,
   isValidIsoDate,
   isValidMonth,
   monthTotal,
+  paginateDayGroups,
   settleAmount,
   todayInTimeZone,
   unsettled,
@@ -263,4 +266,53 @@ describe('kịch bản trọn vòng đời (BRIEF §12)', () => {
     settlements[0] = { ...settlements[0], status: 'void' };
     assert.equal(unsettled(entries, watermarkOf(settlements), TODAY), 185000);
   });
+});
+
+const SAMPLE = [
+  { date: '2026-10-31', amount: 10000 },
+  { date: '2026-11-01', amount: 20000 },
+  { date: '2026-11-10', amount: 30000 },
+  { date: '2026-11-11', amount: 40000 },
+];
+
+test('addDaysIso advances calendar day', () => {
+  assert.equal(addDaysIso('2026-11-10', 1), '2026-11-11');
+  assert.equal(addDaysIso('2026-10-31', 1), '2026-11-01');
+});
+
+test('filterEntriesByLedgerQuery status unsettled / settled / all', () => {
+  const base = { month: null, from: null, to: null, today: '2026-11-11', watermark: '2026-10-31' };
+  assert.deepEqual(
+    filterEntriesByLedgerQuery(SAMPLE, { ...base, status: 'unsettled' }).map((e) => e.date),
+    ['2026-11-01', '2026-11-10', '2026-11-11'],
+  );
+  assert.deepEqual(
+    filterEntriesByLedgerQuery(SAMPLE, { ...base, status: 'settled' }).map((e) => e.date),
+    ['2026-10-31'],
+  );
+  assert.equal(filterEntriesByLedgerQuery(SAMPLE, { ...base, status: 'all' }).length, 4);
+});
+
+test('range wins over month; inclusive bounds', () => {
+  const base = { status: 'all' as const, today: '2026-11-11', watermark: null };
+  const monthOnly = filterEntriesByLedgerQuery(SAMPLE, { ...base, month: '2026-11', from: null, to: null });
+  assert.equal(monthOnly.length, 3);
+  const ranged = filterEntriesByLedgerQuery(SAMPLE, {
+    ...base,
+    month: '2026-11',
+    from: '2026-11-10',
+    to: '2026-11-11',
+  });
+  assert.deepEqual(ranged.map((e) => e.date), ['2026-11-10', '2026-11-11']);
+});
+
+test('paginateDayGroups clamps page and counts folders', () => {
+  const groups = groupByDate(SAMPLE);
+  const page1 = paginateDayGroups(groups, 1, 2);
+  assert.equal(page1.groups.length, 2);
+  assert.equal(page1.pagination.totalGroups, 4);
+  assert.equal(page1.pagination.totalPages, 2);
+  const clamped = paginateDayGroups(groups, 99, 2);
+  assert.equal(clamped.pagination.page, 2);
+  assert.equal(clamped.groups.length, 2);
 });
