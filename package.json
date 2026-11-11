@@ -1,0 +1,30 @@
+{
+  "name": "so-no-be",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sổ Nợ — backend API (Next.js Route Handlers + MongoDB)",
+  "scripts": {
+    "dev": "next dev -p 3001",
+    "build": "next build",
+    "start": "next start -p 3001",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/ledger.test.ts",
+    "test:api": "node tests/integration.mjs",
+    "hash-password": "node scripts/hash-password.mjs",
+    "seed": "node --env-file=.env.local scripts/seed.mjs",
+    "dev:db": "node scripts/dev-db.mjs"
+  },
+  "dependencies": {
+    "mongodb": "^6.10.0",
+    "next": "^15.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "mongodb-memory-server": "^11.3.0",
+    "typescript": "^5.7.0"
+  }
+}
