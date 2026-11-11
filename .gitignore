@@ -19,3 +19,6 @@ npm-debug.log*
 coverage/
 
 *.integration-backup
+
+# Spec / plan docs for agent workflows — keep local only
+docs/superpowers/
