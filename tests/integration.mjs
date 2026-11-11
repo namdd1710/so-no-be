@@ -93,7 +93,6 @@ const server = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'dev'
     ADMIN_PASSWORD: PASSWORD,
     ADMIN_RECOVERY_KEY: RECOVERY_KEY,
     SESSION_SECRET: randomBytes(32).toString('hex'),
-    APP_BASE_URL: 'http://localhost:3000',
     ALLOWED_ORIGINS: ORIGIN,
     NODE_ENV: 'development',
   },
@@ -144,7 +143,7 @@ try {
   check('tạo con nợ → 201', created.status === 201, created.json);
   const debtor = created.json.debtor;
   check('accessCode dài 12 ký tự Base32', /^[0-9A-HJKMNP-TV-Z]{12}$/.test(debtor.accessCode), debtor.accessCode);
-  check('shareUrl đúng dạng /s/{code}', debtor.shareUrl === `http://localhost:3000/s/${debtor.accessCode}`, debtor.shareUrl);
+  check('không trả shareUrl (FE tự dựng link từ origin)', !('shareUrl' in debtor), debtor);
 
   const noOriginCreate = await api('POST', '/api/debtors', { name: 'X' }, { origin: 'http://evil.example' });
   check('tạo từ origin lạ → 403', noOriginCreate.status === 403, noOriginCreate.json);

@@ -8,7 +8,8 @@
  * - `*` → mọi nguồn (tắt kiểm tra, kể cả request không gửi `Origin`)
  * - `https://*.vercel.app` → mọi domain con, tiện cho preview deployment
  * - origin chính xác, ngăn cách bằng dấu phẩy
- * `APP_BASE_URL` luôn được coi là hợp lệ.
+ *
+ * Ngoài ra request trùng host của chính BE luôn được coi là hợp lệ.
  */
 
 function toPattern(value: string): RegExp {
@@ -22,7 +23,7 @@ let cachedKey = '';
 let cachedRules: OriginRules | null = null;
 
 function originRules(): OriginRules {
-  const sources = [process.env.ALLOWED_ORIGINS ?? '', process.env.APP_BASE_URL ?? ''];
+  const sources = [process.env.ALLOWED_ORIGINS ?? ''];
   const key = sources.join('|');
   if (cachedRules && cachedKey === key) return cachedRules;
 

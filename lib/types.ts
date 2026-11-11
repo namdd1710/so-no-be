@@ -54,7 +54,6 @@ export type DebtorSummary = {
   active: boolean;
   createdAt: string;
   archivedAt: string | null;
-  shareUrl: string;
   unsettled: number;
   settled: number;
   lastSettledAt: string | null;

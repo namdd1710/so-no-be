@@ -1,7 +1,7 @@
 import { generateAccessCode } from '@/lib/access-code';
 import { getCollections } from '@/lib/db';
 import { ApiError, fail, json, readJson, requireAdmin, requireMutation, route } from '@/lib/http';
-import { listDebtors, shareUrlFor } from '@/lib/service';
+import { listDebtors } from '@/lib/service';
 import { parseBooleanish, parseString } from '@/lib/validate';
 import type { DebtorDoc } from '@/lib/types';
 
@@ -69,7 +69,6 @@ export const POST = route(async (request: Request) => {
         active: created.active,
         createdAt: created.createdAt.toISOString(),
         archivedAt: null,
-        shareUrl: shareUrlFor(created.accessCode),
         unsettled: 0,
         settled: 0,
         lastSettledAt: null,

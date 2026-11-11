@@ -53,7 +53,6 @@ npm run test:api   # 50+ check HTTP thật: bật Mongo in-memory + next dev
 | `ADMIN_PASSWORD` | ✅ | **Mật khẩu chữ thường** (không phải hash). Là mật khẩu khởi tạo. |
 | `ADMIN_RECOVERY_KEY` | ✅ | Chuỗi bí mật **bạn tự đặt**; nhập đúng key này + mật khẩu mới thì mới đổi được mật khẩu. Để trống = tắt tính năng. |
 | `SESSION_SECRET` | ✅ | ≥16 ký tự, nên là 64 hex |
-| `APP_BASE_URL` | ✅ | URL công khai của **FE**, dùng để dựng link `/s/{code}` |
 | `ALLOWED_ORIGINS` | ✅ | Origin được phép gọi API, phân tách bằng dấu phẩy (chống CSRF). Hỗ trợ `*` = mọi nguồn, `https://*.vercel.app` = mọi domain con |
 
 ## 4. API
@@ -145,11 +144,11 @@ không nên chạy trên Vercel).
 
 3. Import repo → Vercel tự nhận framework Next.js, giữ nguyên Root Directory (`.`) và Build Command mặc định.
 4. Thêm biến môi trường (Production): `MONGODB_URI`, `MONGODB_DB=so_no`, `ADMIN_PASSWORD`,
-   `ADMIN_RECOVERY_KEY`, `SESSION_SECRET` (64 hex). `APP_BASE_URL` / `ALLOWED_ORIGINS` điền ở bước 6.
+   `ADMIN_RECOVERY_KEY`, `SESSION_SECRET` (64 hex). `ALLOWED_ORIGINS` điền ở bước 6.
 5. Deploy, rồi mở `https://<be-domain>/api/health` — phải trả `{"ok":true,"db":true}`.
    Nếu `ok:false`: xem lại Atlas Network Access và `MONGODB_URI`.
-6. Có domain FE rồi thì cập nhật `APP_BASE_URL=https://<fe-domain>` và
-   `ALLOWED_ORIGINS=https://<fe-domain>` → **Redeploy** (link `/s/{code}` dựng từ `APP_BASE_URL`).
+6. Có domain FE rồi thì đặt `ALLOWED_ORIGINS=https://<fe-domain>` → **Redeploy**.
+   Link `/s/{code}` do FE tự dựng từ origin đang mở, BE không cần biết domain FE.
 
 **Lưu ý**
 

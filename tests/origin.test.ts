@@ -20,14 +20,12 @@ function request(origin?: string, forwardedHost?: string): Request {
   return new Request(URL_UNDER_TEST, { method: 'POST', headers });
 }
 
-function setEnv(allowedOrigins: string | undefined, appBaseUrl?: string) {
+function setEnv(allowedOrigins: string | undefined) {
   if (allowedOrigins === undefined) delete process.env.ALLOWED_ORIGINS;
   else process.env.ALLOWED_ORIGINS = allowedOrigins;
-  if (appBaseUrl === undefined) delete process.env.APP_BASE_URL;
-  else process.env.APP_BASE_URL = appBaseUrl;
 }
 
-afterEach(() => setEnv(undefined, undefined));
+afterEach(() => setEnv(undefined));
 
 describe('isAllowedOrigin — danh sách chính xác', () => {
   it('cho qua origin khớp, kể cả khi có dấu / ở cuối', () => {
@@ -41,12 +39,6 @@ describe('isAllowedOrigin — danh sách chính xác', () => {
     setEnv('https://so-no-fe.vercel.app');
     assert.equal(isAllowedOrigin(request('https://evil.example')), false);
     assert.equal(isAllowedOrigin(request()), false);
-  });
-
-  it('coi APP_BASE_URL là origin hợp lệ', () => {
-    setEnv(undefined, 'https://so-no-fe.vercel.app');
-    assert.equal(isAllowedOrigin(request('https://so-no-fe.vercel.app')), true);
-    assert.equal(isAllowedOrigin(request('https://evil.example')), false);
   });
 
   it('cho qua origin trùng host của chính request', () => {
@@ -82,7 +74,7 @@ describe('isAllowedOrigin — wildcard', () => {
   });
 
   it('không có biến môi trường thì chỉ còn luật trùng host', () => {
-    setEnv(undefined, undefined);
+    setEnv(undefined);
     assert.equal(isAllowedOrigin(request('https://evil.example')), false);
     assert.equal(isAllowedOrigin(request('https://so-no-be.vercel.app', 'so-no-be.vercel.app')), true);
   });

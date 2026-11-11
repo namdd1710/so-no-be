@@ -36,14 +36,6 @@ export function toObjectId(id: string): ObjectId {
   return new ObjectId(id);
 }
 
-function baseUrl(): string {
-  return (process.env.APP_BASE_URL || '').trim().replace(/\/+$/, '');
-}
-
-export function shareUrlFor(accessCode: string): string {
-  return `${baseUrl()}/s/${accessCode}`;
-}
-
 function iso(date: Date | null | undefined): string | null {
   return date ? new Date(date).toISOString() : null;
 }
@@ -107,7 +99,6 @@ function summarise(
     active: debtor.active,
     createdAt: iso(debtor.createdAt) ?? '',
     archivedAt: iso(debtor.archivedAt),
-    shareUrl: shareUrlFor(debtor.accessCode),
     unsettled: unsettled(entries, watermark, today),
     settled: active.reduce((sum, s) => sum + s.amount, 0),
     lastSettledAt: latest?.periodEnd ?? null,
