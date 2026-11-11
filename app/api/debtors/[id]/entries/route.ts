@@ -2,7 +2,7 @@ import { getCollections } from '@/lib/db';
 import { ApiError, json, readJson, requireAdmin, requireMutation, route } from '@/lib/http';
 import { checkEntryWritable, todayInTimeZone, watermarkOf } from '@/lib/ledger';
 import { findDebtorById, loadLedger, toObjectId } from '@/lib/service';
-import { parseAmount, parseEntryDate, parseMonthParam, parseString } from '@/lib/validate';
+import { parseAmount, parseEntryDate, parseLedgerQuery, parseString } from '@/lib/validate';
 import type { EntryDoc } from '@/lib/types';
 
 export const runtime = 'nodejs';
@@ -10,12 +10,13 @@ export const dynamic = 'force-dynamic';
 
 type Context = { params: Promise<{ id: string }> };
 
-/** GET /api/debtors/:id/entries?month=YYYY-MM */
+/** GET /api/debtors/:id/entries — sổ entries (status/month/from/to/page). */
 export const GET = route<Context>(async (request, context) => {
   await requireAdmin(request);
   const { id } = await context.params;
   const url = new URL(request.url);
-  return json(await loadLedger(id, parseMonthParam(url.searchParams.get('month'))));
+  const q = parseLedgerQuery(url.searchParams);
+  return json(await loadLedger(id, q));
 });
 
 /** POST /api/debtors/:id/entries — thêm khoản phát sinh. */

@@ -8,16 +8,16 @@
 import { ObjectId } from 'mongodb';
 import { getCollections } from './db';
 import {
+  filterEntriesByLedgerQuery,
   groupByDate,
-  monthTotal,
   settleAmount,
   settleCount,
-  sumRange,
   todayInTimeZone,
   unsettled,
   watermarkOf,
   latestActiveSettlement,
   isValidMonth,
+  paginateDayGroups,
 } from './ledger';
 import { ApiError } from './http';
 import type {
@@ -30,6 +30,19 @@ import type {
   SettlementDoc,
   SettlementJson,
 } from './types';
+
+export type LedgerQueryInput = {
+  status?: 'unsettled' | 'settled' | 'all';
+  month?: string | null;
+  from?: string | null;
+  to?: string | null;
+  page?: number;
+  pageSize?: number;
+};
+
+function hasRange(from: string | null, to: string | null) {
+  return Boolean(from || to);
+}
 
 export function toObjectId(id: string): ObjectId {
   if (!/^[a-f\d]{24}$/i.test(id)) throw new ApiError(404, 'NOT_FOUND', 'Không tìm thấy dữ liệu');
@@ -158,7 +171,7 @@ export async function listDebtors(options: ListDebtorsOptions = {}): Promise<Deb
 
 /* ------------------------------- Ledger ------------------------------ */
 
-export async function loadLedger(debtorId: string, month?: string | null): Promise<LedgerResponse> {
+export async function loadLedger(debtorId: string, query: LedgerQueryInput = {}): Promise<LedgerResponse> {
   const debtor = await findDebtorById(debtorId);
   const { entries, settlements } = await getCollections();
   const today = todayInTimeZone();
@@ -169,16 +182,32 @@ export async function loadLedger(debtorId: string, month?: string | null): Promi
   ]);
 
   const watermark = watermarkOf(settlementDocs);
-  const monthFilter = month && isValidMonth(month) ? month : null;
-  const visibleDocs = monthFilter ? entryDocs.filter((doc) => doc.date.startsWith(monthFilter)) : entryDocs;
+  const status = query.status ?? 'all';
+  const month = query.month && isValidMonth(query.month) ? query.month : null;
+  const from = query.from ?? null;
+  const to = query.to ?? null;
+  const page = query.page ?? 1;
+  const pageSize = query.pageSize ?? 10;
 
-  const visibleEntries = visibleDocs.map((doc) => toEntryJson(doc, watermark));
-  const groups = groupByDate(visibleEntries).map((group) => ({
+  const filteredDocs = filterEntriesByLedgerQuery(entryDocs, {
+    status,
+    month,
+    from,
+    to,
+    today,
+    watermark,
+  });
+
+  const visibleEntries = filteredDocs.map((doc) => toEntryJson(doc, watermark));
+  const allGroups = groupByDate(visibleEntries).map((group) => ({
     date: group.date,
     total: group.total,
     count: group.count,
     entries: group.entries,
   }));
+  const { groups, pagination } = paginateDayGroups(allGroups, page, pageSize);
+
+  const filterTotal = filteredDocs.reduce((sum, doc) => sum + doc.amount, 0);
 
   const categories = [...new Set(entryDocs.map((doc) => doc.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
 
@@ -193,22 +222,26 @@ export async function loadLedger(debtorId: string, month?: string | null): Promi
     totals: {
       unsettled: unsettled(entryDocs, watermark, today),
       settled: active.reduce((sum, s) => sum + s.amount, 0),
-      monthTotal: monthFilter ? monthTotal(entryDocs, monthFilter) : sumRange(entryDocs, null, today),
+      monthTotal: filterTotal,
       unsettledCount: settleCount(entryDocs, watermark, today),
       settlePreview: settleAmount(entryDocs, watermark, today),
       settlePreviewCount: settleCount(entryDocs, watermark, today),
     },
-    entries: visibleEntries,
+    entries: groups.flatMap((g) => g.entries),
     groups,
     settlements: settlementDocs.map(toSettlementJson),
-    month: monthFilter,
+    status,
+    month: hasRange(from, to) ? null : month,
+    from,
+    to,
+    pagination,
     categories,
   };
 }
 
 /* --------------------------- Public ledger --------------------------- */
 
-export async function loadPublicLedger(code: string, month?: string | null): Promise<PublicLedgerResponse> {
+export async function loadPublicLedger(code: string, query: LedgerQueryInput = {}): Promise<PublicLedgerResponse> {
   const debtor = await findDebtorByCode(code);
   // 404 không phân biệt "không tồn tại" và "không có quyền" (BRIEF §9).
   if (!debtor) throw new ApiError(404, 'NOT_FOUND', 'Không tìm thấy sổ nợ');
@@ -222,11 +255,24 @@ export async function loadPublicLedger(code: string, month?: string | null): Pro
   ]);
 
   const watermark = watermarkOf(settlementDocs);
-  const monthFilter = month && isValidMonth(month) ? month : null;
-  const visibleDocs = monthFilter ? entryDocs.filter((doc) => doc.date.startsWith(monthFilter)) : entryDocs;
+  const status = query.status ?? 'all';
+  const month = query.month && isValidMonth(query.month) ? query.month : null;
+  const from = query.from ?? null;
+  const to = query.to ?? null;
+  const page = query.page ?? 1;
+  const pageSize = query.pageSize ?? 10;
+
+  const filteredDocs = filterEntriesByLedgerQuery(entryDocs, {
+    status,
+    month,
+    from,
+    to,
+    today,
+    watermark,
+  });
 
   // Chỉ trường công khai: KHÔNG phone, KHÔNG note nội bộ, KHÔNG accessCode.
-  const entriesJson = visibleDocs.map((doc) => ({
+  const entriesJson = filteredDocs.map((doc) => ({
     id: doc._id.toString(),
     date: doc.date,
     category: doc.category,
@@ -234,12 +280,15 @@ export async function loadPublicLedger(code: string, month?: string | null): Pro
     note: doc.note ?? '',
   }));
 
-  const groups = groupByDate(entriesJson).map((group) => ({
+  const allGroups = groupByDate(entriesJson).map((group) => ({
     date: group.date,
     total: group.total,
     count: group.count,
     entries: group.entries,
   }));
+  const { groups, pagination } = paginateDayGroups(allGroups, page, pageSize);
+
+  const filterTotal = filteredDocs.reduce((sum, doc) => sum + doc.amount, 0);
 
   const active = settlementDocs.filter((s) => s.status === 'active');
   const latest = latestActiveSettlement(settlementDocs);
@@ -253,9 +302,9 @@ export async function loadPublicLedger(code: string, month?: string | null): Pro
       unsettled: unsettled(entryDocs, watermark, today),
       unsettledCount: settleCount(entryDocs, watermark, today),
       settled: active.reduce((sum, s) => sum + s.amount, 0),
-      monthTotal: monthFilter ? monthTotal(entryDocs, monthFilter) : sumRange(entryDocs, null, today),
+      monthTotal: filterTotal,
     },
-    entries: entriesJson,
+    entries: groups.flatMap((g) => g.entries),
     groups,
     settlements: active
       .sort((a, b) => b.periodEnd.localeCompare(a.periodEnd))
@@ -267,7 +316,11 @@ export async function loadPublicLedger(code: string, month?: string | null): Pro
         entryCount: doc.entryCount,
         createdAt: iso(doc.createdAt) ?? '',
       })),
-    month: monthFilter,
+    status,
+    month: hasRange(from, to) ? null : month,
+    from,
+    to,
+    pagination,
   };
 }
 

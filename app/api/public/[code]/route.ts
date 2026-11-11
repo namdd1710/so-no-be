@@ -1,7 +1,7 @@
 import { isValidAccessCodeShape, normalizeAccessCode } from '@/lib/access-code';
 import { clientIp, fail, json, route, takeRateLimit } from '@/lib/http';
 import { loadPublicLedger } from '@/lib/service';
-import { parseMonthParam } from '@/lib/validate';
+import { parseLedgerQuery } from '@/lib/validate';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -32,7 +32,8 @@ export const GET = route<Context>(async (request, context) => {
 
   const url = new URL(request.url);
   try {
-    const ledger = await loadPublicLedger(normalized, parseMonthParam(url.searchParams.get('month')));
+    const q = parseLedgerQuery(url.searchParams);
+    const ledger = await loadPublicLedger(normalized, q);
     return json(ledger);
   } catch (error) {
     if ((error as { status?: number }).status === 404) return fail(404, 'NOT_FOUND', 'Không tìm thấy sổ nợ');

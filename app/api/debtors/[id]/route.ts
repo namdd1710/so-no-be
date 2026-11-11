@@ -1,20 +1,20 @@
 import { getCollections } from '@/lib/db';
 import { ApiError, json, readJson, requireAdmin, requireMutation, route } from '@/lib/http';
 import { findDebtorById, loadLedger } from '@/lib/service';
-import { parseBooleanish, parseMonthParam, parseString } from '@/lib/validate';
+import { parseBooleanish, parseLedgerQuery, parseString } from '@/lib/validate';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 type Context = { params: Promise<{ id: string }> };
 
-/** GET /api/debtors/:id?month=YYYY-MM — toàn bộ sổ của một con nợ. */
+/** GET /api/debtors/:id — sổ của một con nợ (status/month/from/to/page). */
 export const GET = route<Context>(async (request, context) => {
   await requireAdmin(request);
   const { id } = await context.params;
   const url = new URL(request.url);
-  const month = parseMonthParam(url.searchParams.get('month'));
-  return json(await loadLedger(id, month));
+  const q = parseLedgerQuery(url.searchParams);
+  return json(await loadLedger(id, q));
 });
 
 /** PATCH /api/debtors/:id — sửa tên/SĐT/ghi chú hoặc lưu trữ. KHÔNG đổi accessCode. */

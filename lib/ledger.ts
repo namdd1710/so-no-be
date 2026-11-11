@@ -227,7 +227,7 @@ export function filterEntriesByLedgerQuery<T extends LedgerEntry>(entries: T[], 
 }
 
 /** Phân trang theo folder ngày; page ngoài biên bị kẹp về trang hợp lệ. */
-export function paginateDayGroups<T>(
+export function paginateDayGroups<T extends LedgerEntry>(
   groups: DayGroup<T>[],
   page: number,
   pageSize: number,
