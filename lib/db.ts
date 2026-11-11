@@ -5,6 +5,7 @@
  * không mở pool mới cho mỗi request. Atlas chạy cùng region `sin1`.
  */
 
+import { setServers } from 'node:dns';
 import { MongoClient, type Db } from 'mongodb';
 import type { DebtorDoc, EntryDoc, SettlementDoc } from './types';
 
@@ -25,7 +26,33 @@ function mongoUri(): string {
   return uri;
 }
 
+let dnsConfigured = false;
+
+/**
+ * Tuỳ chọn: `MONGODB_DNS_SERVERS=1.1.1.1,8.8.8.8`.
+ *
+ * URI `mongodb+srv://` cần tra bản ghi SRV bằng resolver của Node (c-ares).
+ * Trên một số máy Windows, c-ares không đọc được resolver hệ thống và báo
+ * `querySrv ECONNREFUSED` — khi đó chỉ định DNS công khai ở đây là xong.
+ * Production (Vercel) thường không cần biến này.
+ */
+function configureDns(): void {
+  if (dnsConfigured) return;
+  const raw = process.env.MONGODB_DNS_SERVERS;
+  if (!raw) return;
+  const servers = raw.split(',').map((value) => value.trim()).filter(Boolean);
+  if (servers.length === 0) return;
+  try {
+    setServers(servers);
+    dnsConfigured = true;
+    console.log('[db] Dùng DNS riêng cho Mongo:', servers.join(', '));
+  } catch (error) {
+    console.warn('[db] Không đặt được MONGODB_DNS_SERVERS:', error instanceof Error ? error.message : error);
+  }
+}
+
 export function getClient(): Promise<MongoClient> {
+  configureDns();
   if (!cache.promise) {
     const client = new MongoClient(mongoUri(), {
       maxPoolSize: 10,

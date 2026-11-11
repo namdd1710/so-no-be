@@ -49,6 +49,7 @@ npm run test:api   # 50+ check HTTP thật: bật Mongo in-memory + next dev
 |---|---|---|
 | `MONGODB_URI` | ✅ | Atlas, database riêng `so_no` |
 | `MONGODB_DB` | | mặc định `so_no` |
+| `MONGODB_DNS_SERVERS` | | chỉ định DNS cho driver (`1.1.1.1,8.8.8.8`) khi máy local báo `querySrv ECONNREFUSED`. Bỏ trống trên production. |
 | `ADMIN_PASSWORD` | ✅ | **Mật khẩu chữ thường** (không phải hash). Là mật khẩu khởi tạo. |
 | `ADMIN_RECOVERY_KEY` | ✅ | Chuỗi bí mật **bạn tự đặt**; nhập đúng key này + mật khẩu mới thì mới đổi được mật khẩu. Để trống = tắt tính năng. |
 | `SESSION_SECRET` | ✅ | ≥16 ký tự, nên là 64 hex |
