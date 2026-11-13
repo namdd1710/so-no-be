@@ -218,6 +218,7 @@ export function toConfirmationJson(doc: ConfirmationDoc): ConfirmationJson {
     amount: doc.amount,
     note: doc.note ?? '',
     status: doc.status,
+    reply: doc.reply ?? '',
     declaredAt: doc.declaredAt.toISOString(),
     resolvedAt: doc.resolvedAt ? doc.resolvedAt.toISOString() : null,
   };
@@ -314,12 +315,13 @@ export async function loadPublicLedger(code: string, query: LedgerQueryInput = {
   // 404 không phân biệt "không tồn tại" và "không có quyền" (BRIEF §9).
   if (!debtor) throw new ApiError(404, 'NOT_FOUND', 'Không tìm thấy sổ nợ');
 
-  const { entries, settlements } = await getCollections();
+  const { entries, settlements, confirmations } = await getCollections();
   const today = todayInTimeZone();
 
-  const [entryDocs, settlementDocs] = await Promise.all([
+  const [entryDocs, settlementDocs, confirmationDocs] = await Promise.all([
     entries.find({ debtorId: debtor._id, deletedAt: null }).sort({ date: -1, createdAt: 1 }).toArray(),
     settlements.find({ debtorId: debtor._id }).sort({ periodEnd: -1 }).toArray(),
+    confirmations.find({ debtorId: debtor._id }).sort({ declaredAt: -1 }).limit(20).toArray(),
   ]);
 
   const watermark = watermarkOf(settlementDocs);
@@ -394,6 +396,7 @@ export async function loadPublicLedger(code: string, query: LedgerQueryInput = {
     from,
     to,
     pagination,
+    confirmations: confirmationDocs.map(toConfirmationJson),
   };
 }
 

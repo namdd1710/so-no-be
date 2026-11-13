@@ -142,6 +142,8 @@ export type ConfirmationDoc = {
   amount: number;
   note: string;
   status: 'pending' | 'confirmed' | 'rejected';
+  /** Phản hồi của chủ nợ khi xác nhận (con nợ đọc được). */
+  reply: string;
   declaredAt: Date;
   resolvedAt: Date | null;
 };
@@ -151,6 +153,7 @@ export type ConfirmationJson = {
   amount: number;
   note: string;
   status: 'pending' | 'confirmed' | 'rejected';
+  reply: string;
   declaredAt: string;
   resolvedAt: string | null;
 };
@@ -199,6 +202,16 @@ export type PublicLedgerResponse = {
   watermark: string | null;
   latestSettlement: { periodEnd: string; amount: number } | null;
   totals: { unsettled: number; unsettledCount: number; settled: number; monthTotal: number };
+  /** Lời báo đã chuyển khoản của chính con nợ này (kèm phản hồi của chủ nợ). */
+  confirmations: {
+    id: string;
+    amount: number;
+    note: string;
+    status: 'pending' | 'confirmed' | 'rejected';
+    reply: string;
+    declaredAt: string;
+    resolvedAt: string | null;
+  }[];
   entries: {
     id: string;
     date: string;

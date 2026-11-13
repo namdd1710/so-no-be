@@ -52,6 +52,7 @@ export const POST = route<Context>(async (request, context) => {
     amount: Math.round(amount),
     note,
     status: 'pending',
+    reply: '',
     declaredAt: now,
     resolvedAt: null,
   } as ConfirmationDoc);

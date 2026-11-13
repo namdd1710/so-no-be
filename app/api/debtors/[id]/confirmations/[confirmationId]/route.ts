@@ -1,6 +1,7 @@
 import { getCollections } from '@/lib/db';
 import { ApiError, json, readJson, requireAdmin, requireMutation, route } from '@/lib/http';
 import { findDebtorById, toConfirmationJson, toObjectId } from '@/lib/service';
+import { parseString } from '@/lib/validate';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -29,11 +30,14 @@ export const PATCH = route<Context>(async (request, context) => {
   }
   const status = body.status as (typeof STATUSES)[number];
 
+  // Phản hồi cho con nợ đọc ở trang công khai (vd: "Đã nhận đủ, cảm ơn").
+  const update: Record<string, unknown> = { status, resolvedAt: status === 'pending' ? null : new Date() };
+  if ('reply' in body) update.reply = parseString(body.reply, { field: 'Phản hồi', max: 300 });
+
   const { confirmations } = await getCollections();
-  const now = new Date();
   const result = await confirmations.findOneAndUpdate(
     { _id: toObjectId(confirmationId), debtorId: debtor._id },
-    { $set: { status, resolvedAt: status === 'pending' ? null : now } },
+    { $set: update },
     { returnDocument: 'after' },
   );
 
