@@ -1,7 +1,7 @@
 import { getCollections } from '@/lib/db';
 import { ApiError, json, readJson, requireAdmin, requireMutation, route } from '@/lib/http';
 import { MAX_RANGE_DAYS, checkEntryWritable, daysInRange, todayInTimeZone, watermarkOf } from '@/lib/ledger';
-import { findDebtorById, loadLedger, toObjectId } from '@/lib/service';
+import { findDebtorById, loadLedger, rememberCategoryPrices, toObjectId } from '@/lib/service';
 import { parseAmount, parseEntryDate, parseLedgerQuery, parseQuantity, parseString } from '@/lib/validate';
 import type { EntryDoc, EntryType } from '@/lib/types';
 
@@ -125,6 +125,11 @@ export const POST = route<Context>(async (request, context) => {
   }));
 
   const result = await entries.insertMany(docs as EntryDoc[]);
+  // Nhớ đơn giá theo danh mục để lần sau chọn là tự điền.
+  await rememberCategoryPrices(
+    debtor._id,
+    items.map((item) => ({ category: item.category, unitAmount: item.unitAmount })),
+  );
   const created = docs.map((doc, index) => ({
     id: result.insertedIds[index]!.toString(),
     date: doc.date,

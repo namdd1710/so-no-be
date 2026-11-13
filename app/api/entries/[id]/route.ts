@@ -1,7 +1,7 @@
 import { getCollections } from '@/lib/db';
 import { ApiError, json, readJson, requireAdmin, requireMutation, route } from '@/lib/http';
 import { checkEntryWritable, todayInTimeZone, watermarkOf } from '@/lib/ledger';
-import { toObjectId } from '@/lib/service';
+import { rememberCategoryPrices, toObjectId } from '@/lib/service';
 import { parseAmount, parseEntryDate, parseQuantity, parseString } from '@/lib/validate';
 import type { EntryDoc } from '@/lib/types';
 
@@ -90,6 +90,11 @@ export const PATCH = route<Context>(async (request, context) => {
 
   const result = await entries.findOneAndUpdate({ _id: entry._id, deletedAt: null }, { $set: update }, { returnDocument: 'after' });
   if (!result) throw new ApiError(404, 'NOT_FOUND', 'Không tìm thấy khoản này');
+
+  // Sửa giá/danh mục cũng cập nhật giá mặc định cho lần nhập sau.
+  await rememberCategoryPrices(entry.debtorId, [
+    { category: result.category, unitAmount: result.unitAmount ?? result.amount },
+  ]);
 
   return json({
     entry: {

@@ -177,14 +177,48 @@ export async function listDebtors(options: ListDebtorsOptions = {}): Promise<Deb
 
 /* ------------------------------- Ledger ------------------------------ */
 
+/**
+ * Ghi nhớ đơn giá gần nhất của từng danh mục để lần sau chọn là tự điền.
+ * Một bản ghi cho mỗi (con nợ, tên danh mục); giá lưu dạng dương.
+ */
+export async function rememberCategoryPrices(
+  debtorId: ObjectId,
+  items: { category: string; unitAmount: number }[],
+): Promise<void> {
+  const valid = items.filter((item) => item.category && item.unitAmount !== 0);
+  if (valid.length === 0) return;
+
+  const { categories } = await getCollections();
+  const now = new Date();
+  try {
+    await Promise.all(
+      valid.map((item) =>
+        categories.updateOne(
+          { debtorId, name: item.category },
+          {
+            $set: { unitPrice: Math.abs(item.unitAmount), lastUsedAt: now, updatedAt: now },
+            $setOnInsert: { createdAt: now },
+          },
+          { upsert: true },
+        ),
+      ),
+    );
+  } catch (error) {
+    // Chỉ là ghi nhớ giá cho lần sau — lỗi ở đây không được làm hỏng việc lưu
+    // khoản mà người dùng vừa thực hiện.
+    console.warn('[service] Không lưu được giá danh mục:', error instanceof Error ? error.message : error);
+  }
+}
+
 export async function loadLedger(debtorId: string, query: LedgerQueryInput = {}): Promise<LedgerResponse> {
   const debtor = await findDebtorById(debtorId);
-  const { entries, settlements } = await getCollections();
+  const { entries, settlements, categories: categoryCollection } = await getCollections();
   const today = todayInTimeZone();
 
-  const [entryDocs, settlementDocs] = await Promise.all([
+  const [entryDocs, settlementDocs, storedCategories] = await Promise.all([
     entries.find({ debtorId: debtor._id, deletedAt: null }).sort({ date: -1, createdAt: 1 }).toArray(),
     settlements.find({ debtorId: debtor._id }).sort({ periodEnd: -1 }).toArray(),
+    categoryCollection.find({ debtorId: debtor._id }).toArray(),
   ]);
 
   const watermark = watermarkOf(settlementDocs);
@@ -215,7 +249,19 @@ export async function loadLedger(debtorId: string, query: LedgerQueryInput = {})
 
   const filterTotal = filteredDocs.reduce((sum, doc) => sum + doc.amount, 0);
 
-  const categories = [...new Set(entryDocs.map((doc) => doc.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
+  const categories = [
+    ...new Set([...storedCategories.map((doc) => doc.name), ...entryDocs.map((doc) => doc.category).filter(Boolean)]),
+  ].sort((a, b) => a.localeCompare(b, 'vi'));
+
+  // Giá mặc định: bảng `categories` thắng; danh mục chỉ có trong lịch sử thì lấy
+  // đơn giá của khoản mới nhất (entryDocs đã sắp xếp theo ngày giảm dần).
+  const priceByName = new Map<string, number>();
+  for (const doc of entryDocs) {
+    const price = Math.abs(doc.unitAmount ?? doc.amount);
+    if (!priceByName.has(doc.category) && price > 0) priceByName.set(doc.category, price);
+  }
+  for (const doc of storedCategories) priceByName.set(doc.name, doc.unitPrice);
+  const categoryDefaults = categories.map((name) => ({ name, unitPrice: priceByName.get(name) ?? 0 }));
 
   const summary = summarise(debtor, entryDocs, settlementDocs, today);
   const active = settlementDocs.filter((s) => s.status === 'active');
@@ -242,6 +288,7 @@ export async function loadLedger(debtorId: string, query: LedgerQueryInput = {})
     to,
     pagination,
     categories,
+    categoryDefaults,
   };
 }
 

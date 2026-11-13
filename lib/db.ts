@@ -7,7 +7,7 @@
 
 import { setServers } from 'node:dns';
 import { MongoClient, type Db } from 'mongodb';
-import type { DebtorDoc, EntryDoc, SettlementDoc } from './types';
+import type { CategoryDoc, DebtorDoc, EntryDoc, SettlementDoc } from './types';
 
 const DEFAULT_DB = 'so_no';
 
@@ -81,6 +81,10 @@ async function ensureIndexes(db: Db): Promise<void> {
       await db.collection<EntryDoc>('entries').createIndex({ debtorId: 1, date: -1 });
       await db.collection<EntryDoc>('entries').createIndex({ debtorId: 1, deletedAt: 1, date: -1 });
       await db.collection<SettlementDoc>('settlements').createIndex({ debtorId: 1, periodEnd: -1 });
+      // Danh mục + đơn giá gần nhất, mỗi tên một bản ghi cho mỗi con nợ.
+      await db
+        .collection<CategoryDoc>('categories')
+        .createIndex({ debtorId: 1, name: 1 }, { unique: true });
     })().catch((error) => {
       cache.indexes = null;
       throw error;
@@ -103,6 +107,7 @@ export async function getCollections() {
     debtors: db.collection<DebtorDoc>('debtors'),
     entries: db.collection<EntryDoc>('entries'),
     settlements: db.collection<SettlementDoc>('settlements'),
+    categories: db.collection<CategoryDoc>('categories'),
   };
 }
 

@@ -135,6 +135,23 @@ export type PaginationMeta = {
   totalPages: number;
 };
 
+/** Danh mục kèm đơn giá gần nhất — dùng để tự điền giá khi thêm khoản. */
+export type CategoryDoc = {
+  _id: ObjectId;
+  debtorId: ObjectId;
+  name: string;
+  /** Đơn giá ×1 gần nhất của danh mục này. */
+  unitPrice: number;
+  lastUsedAt: Date;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type CategoryJson = {
+  name: string;
+  unitPrice: number;
+};
+
 export type LedgerResponse = {
   debtor: DebtorSummary;
   today: string;
@@ -150,6 +167,8 @@ export type LedgerResponse = {
   to: string | null;
   pagination: PaginationMeta;
   categories: string[];
+  /** Cùng danh sách `categories` nhưng kèm đơn giá gần nhất. */
+  categoryDefaults: CategoryJson[];
 };
 
 export type PublicLedgerResponse = {
