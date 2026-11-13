@@ -77,6 +77,8 @@ function toEntryJson(doc: EntryDoc, watermark: string | null): EntryJson {
     unitAmount: doc.unitAmount ?? doc.amount,
     quantity: doc.quantity ?? 1,
     entryType: doc.entryType ?? 'single',
+    startDate: doc.startDate ?? null,
+    endDate: doc.startDate ? doc.date : null,
     note: doc.note ?? '',
     editable: watermark === null || doc.date > watermark,
     createdAt: iso(doc.createdAt) ?? '',
@@ -284,6 +286,8 @@ export async function loadPublicLedger(code: string, query: LedgerQueryInput = {
     unitAmount: doc.unitAmount ?? doc.amount,
     quantity: doc.quantity ?? 1,
     entryType: doc.entryType ?? 'single',
+    startDate: doc.startDate ?? null,
+    endDate: doc.startDate ? doc.date : null,
     note: doc.note ?? '',
   }));
 

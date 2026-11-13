@@ -45,7 +45,26 @@ export const PATCH = route<Context>(async (request, context) => {
     const date = parseEntryDate(body.date, today);
     const guard = checkEntryWritable(date, watermark);
     if (!guard.ok) throw new ApiError(409, guard.code, guard.message);
+    if (entry.startDate && entry.startDate > date) {
+      throw new ApiError(400, 'INVALID_RANGE', 'Ngày kết thúc phải sau hoặc bằng ngày bắt đầu của khoảng');
+    }
     update.date = date;
+  }
+
+  // Sửa/đặt lại ngày bắt đầu của khoảng; `null` = biến thành khoản một ngày.
+  if ('startDate' in body) {
+    if (body.startDate === null || body.startDate === '') {
+      update.startDate = null;
+    } else {
+      const startDate = parseEntryDate(body.startDate, today);
+      const guard = checkEntryWritable(startDate, watermark);
+      if (!guard.ok) throw new ApiError(409, guard.code, guard.message);
+      const endDate = update.date ?? entry.date;
+      if (startDate > endDate) {
+        throw new ApiError(400, 'INVALID_RANGE', 'Ngày bắt đầu phải trước hoặc bằng ngày kết thúc');
+      }
+      update.startDate = startDate;
+    }
   }
   if ('category' in body) update.category = parseString(body.category, { field: 'Danh mục', max: 60, required: true });
   // Tiền: client mới gửi `unitAmount` (đơn giá) + `quantity`; client cũ chỉ gửi
@@ -79,6 +98,8 @@ export const PATCH = route<Context>(async (request, context) => {
       quantity: result.quantity ?? 1,
       // Sửa khoản không đổi nguồn tạo — khoản theo khoảng ngày vẫn là `range`.
       entryType: result.entryType ?? 'single',
+      startDate: result.startDate ?? null,
+      endDate: result.startDate ? result.date : null,
       note: result.note ?? '',
       editable: true,
       createdAt: result.createdAt.toISOString(),

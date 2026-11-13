@@ -11,6 +11,7 @@
     "test": "node --test tests/ledger.test.ts tests/origin.test.ts",
     "test:api": "node tests/integration.mjs",
     "seed": "node --env-file=.env.local scripts/seed.mjs",
+    "collapse:range": "node --env-file=.env.local scripts/collapse-range-entries.mjs",
     "dev:db": "node scripts/dev-db.mjs"
   },
   "dependencies": {

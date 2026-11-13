@@ -38,6 +38,12 @@ export type EntryDoc = {
    * Khoản cũ chưa có field này → coi như `single`.
    */
   entryType?: EntryType;
+  /**
+   * Với khoản theo khoảng ngày: ngày bắt đầu của khoảng.
+   * `date` là ngày kết thúc (mốc dùng để nhóm ngày và tính tổng).
+   * Khoản một ngày thì không có field này.
+   */
+  startDate?: string | null;
   note: string;
   createdAt: Date;
   updatedAt: Date;
@@ -84,8 +90,12 @@ export type EntryJson = {
   unitAmount: number;
   /** Số lượng (≥ 1). */
   quantity: number;
-  /** `single` = thêm lẻ, `range` = sinh ra từ khoảng ngày. */
+  /** `single` = thêm lẻ, `range` = một khoản trải trên một khoảng ngày. */
   entryType: EntryType;
+  /** `null` với khoản một ngày; có giá trị với khoản theo khoảng. */
+  startDate: string | null;
+  /** `null` với khoản một ngày; với khoảng thì bằng `date` (ngày kết thúc). */
+  endDate: string | null;
   note: string;
   editable: boolean;
   createdAt: string;
@@ -156,6 +166,8 @@ export type PublicLedgerResponse = {
     unitAmount: number;
     quantity: number;
     entryType: EntryType;
+    startDate: string | null;
+    endDate: string | null;
     note: string;
   }[];
   groups: {
@@ -170,6 +182,8 @@ export type PublicLedgerResponse = {
       unitAmount: number;
       quantity: number;
       entryType: EntryType;
+      startDate: string | null;
+      endDate: string | null;
       note: string;
     }[];
   }[];

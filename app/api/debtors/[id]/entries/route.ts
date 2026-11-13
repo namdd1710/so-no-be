@@ -1,6 +1,6 @@
 import { getCollections } from '@/lib/db';
 import { ApiError, json, readJson, requireAdmin, requireMutation, route } from '@/lib/http';
-import { MAX_RANGE_DAYS, checkEntryWritable, dateRangeList, daysInRange, todayInTimeZone, watermarkOf } from '@/lib/ledger';
+import { MAX_RANGE_DAYS, checkEntryWritable, daysInRange, todayInTimeZone, watermarkOf } from '@/lib/ledger';
 import { findDebtorById, loadLedger, toObjectId } from '@/lib/service';
 import { parseAmount, parseEntryDate, parseLedgerQuery, parseQuantity, parseString } from '@/lib/validate';
 import type { EntryDoc, EntryType } from '@/lib/types';
@@ -22,10 +22,10 @@ export const GET = route<Context>(async (request, context) => {
 /**
  * POST /api/debtors/:id/entries — thêm khoản phát sinh.
  *
- * Hai chế độ:
- * - một ngày: `{ date, ... }`
- * - khoảng ngày: `{ fromDate, toDate, ... }` → tạo MỖI NGÀY một bản ghi
- *   (ví dụ ăn cơm 01/10 → 11/11), tất cả cùng đơn giá/số lượng.
+ * Hai dạng, MỘT bản ghi cho mỗi lần gọi:
+ * - một ngày: `{ date, ... }` — không có khoảng.
+ * - khoảng ngày: `{ fromDate, toDate, ... }` — lưu `startDate = fromDate`,
+ *   `date = toDate` (ngày kết thúc là mốc để nhóm ngày và tính tổng).
  *
  * Tiền: client gửi `unitAmount` (đơn giá ×1) + `quantity`; server tự tính
  * `amount = unitAmount × quantity` và lưu cả ba. Client cũ chỉ gửi `amount`
@@ -41,7 +41,7 @@ export const POST = route<Context>(async (request, context) => {
   const body = await readJson(request);
   const today = todayInTimeZone();
 
-  // ----- ngày: một ngày hay một khoảng -----
+  // ----- ngày: một ngày hay một khoảng (vẫn chỉ một bản ghi) -----
   const hasFrom = body.fromDate !== undefined && body.fromDate !== null && body.fromDate !== '';
   const hasTo = body.toDate !== undefined && body.toDate !== null && body.toDate !== '';
   const isRange = hasFrom || hasTo;
@@ -49,14 +49,17 @@ export const POST = route<Context>(async (request, context) => {
   const fromRaw = isRange ? (hasFrom ? body.fromDate : body.toDate) : body.date;
   const toRaw = isRange ? (hasTo ? body.toDate : body.fromDate) : body.date;
 
-  const from = parseEntryDate(fromRaw, today);
-  const to = parseEntryDate(toRaw, today);
-  if (from > to) throw new ApiError(400, 'INVALID_RANGE', 'Ngày bắt đầu phải trước hoặc bằng ngày kết thúc');
+  const parsedFrom = parseEntryDate(fromRaw, today);
+  const date = parseEntryDate(toRaw, today); // ngày kết thúc (hoặc ngày duy nhất)
 
-  if (isRange && daysInRange(from, to) > MAX_RANGE_DAYS) {
-    throw new ApiError(400, 'RANGE_TOO_LONG', `Một lần chỉ thêm được tối đa ${MAX_RANGE_DAYS} ngày`);
+  if (isRange && parsedFrom > date) {
+    throw new ApiError(400, 'INVALID_RANGE', 'Ngày bắt đầu phải trước hoặc bằng ngày kết thúc');
   }
-  const dates = isRange ? dateRangeList(from, to) : [from];
+  if (isRange && daysInRange(parsedFrom, date) > MAX_RANGE_DAYS) {
+    throw new ApiError(400, 'RANGE_TOO_LONG', `Một khoảng chỉ được dài tối đa ${MAX_RANGE_DAYS} ngày`);
+  }
+
+  const startDate = isRange ? parsedFrom : null;
 
   // ----- tiền: đơn giá × số lượng -----
   const category = parseString(body.category, { field: 'Danh mục', max: 60, required: true });
@@ -74,23 +77,20 @@ export const POST = route<Context>(async (request, context) => {
     .toArray();
   const watermark = watermarkOf(settlementDocs);
 
-  // Cả khoảng phải nằm ngoài kỳ đã chốt, không thì từ chối luôn thay vì ghi một nửa.
-  const lockedDate = dates.find((date) => !checkEntryWritable(date, watermark).ok);
-  if (lockedDate) {
-    throw new ApiError(
-      409,
-      'LOCKED_PERIOD',
-      `Khoản ngày ${lockedDate} thuộc kỳ đã chốt (đến ${watermark}). Huỷ chốt kỳ ${watermark} để thêm.`,
-    );
+  // Cả hai đầu của khoảng đều phải nằm ngoài kỳ đã chốt.
+  for (const guardDate of isRange ? [parsedFrom, date] : [date]) {
+    const guard = checkEntryWritable(guardDate, watermark);
+    if (!guard.ok) throw new ApiError(409, guard.code, guard.message);
   }
 
-  // Phân biệt khoản thêm lẻ và khoản sinh ra từ khoảng ngày.
+  // Phân biệt khoản thêm lẻ và khoản theo khoảng ngày.
   const entryType: EntryType = isRange ? 'range' : 'single';
 
   const now = new Date();
-  const docs: Omit<EntryDoc, '_id'>[] = dates.map((date) => ({
+  const doc: Omit<EntryDoc, '_id'> = {
     debtorId: toObjectId(id),
     date,
+    startDate,
     category,
     amount,
     unitAmount,
@@ -100,30 +100,27 @@ export const POST = route<Context>(async (request, context) => {
     createdAt: now,
     updatedAt: now,
     deletedAt: null,
-  }));
-
-  const result = await entries.insertMany(docs as EntryDoc[]);
-  const created = dates.map((date, index) => ({
-    id: result.insertedIds[index]!.toString(),
-    date,
-    category,
-    amount,
-    unitAmount,
-    quantity,
-    entryType,
-    note,
-    editable: true,
-    createdAt: now.toISOString(),
-    updatedAt: now.toISOString(),
-  }));
+  };
+  const result = await entries.insertOne(doc as EntryDoc);
 
   return json(
     {
-      // `entry` giữ nguyên cho client cũ; `entries` cho trường hợp khoảng ngày.
-      entry: created[0],
-      entries: created,
-      createdCount: created.length,
-      createdTotal: amount * created.length,
+      entry: {
+        id: result.insertedId.toString(),
+        date,
+        startDate,
+        endDate: isRange ? date : null,
+        category,
+        amount,
+        unitAmount,
+        quantity,
+        entryType,
+        note,
+        editable: true,
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      },
+      createdCount: 1,
     },
     { status: 201 },
   );
