@@ -135,6 +135,32 @@ export type PaginationMeta = {
   totalPages: number;
 };
 
+/** Ảnh QR nhận tiền (MoMo/ngân hàng) chủ nợ tải lên, lưu base64 trong Mongo. */
+export type PaymentQrDoc = {
+  _id: ObjectId;
+  bankName: string;
+  accountName: string;
+  accountNumber: string;
+  note: string;
+  /** Data URL: `data:image/png;base64,…` */
+  image: string;
+  active: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type PaymentQrJson = {
+  id: string;
+  bankName: string;
+  accountName: string;
+  accountNumber: string;
+  note: string;
+  image: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
 /** Con nợ tự báo "đã chuyển khoản" để chủ nợ kiểm tra và xác nhận đã nhận. */
 export type ConfirmationDoc = {
   _id: ObjectId;

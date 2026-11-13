@@ -20,10 +20,13 @@ import {
   paginateDayGroups,
 } from './ledger';
 import { ApiError } from './http';
+import { MAX_QR_COUNT } from './payment-qr';
 import type {
   ConfirmationDoc,
   ConfirmationJson,
   DebtorDoc,
+  PaymentQrDoc,
+  PaymentQrJson,
   DebtorSummary,
   EntryDoc,
   EntryJson,
@@ -210,6 +213,28 @@ export async function rememberCategoryPrices(
     // khoản mà người dùng vừa thực hiện.
     console.warn('[service] Không lưu được giá danh mục:', error instanceof Error ? error.message : error);
   }
+}
+
+export function toPaymentQrJson(doc: PaymentQrDoc): PaymentQrJson {
+  return {
+    id: doc._id.toString(),
+    bankName: doc.bankName ?? '',
+    accountName: doc.accountName ?? '',
+    accountNumber: doc.accountNumber ?? '',
+    note: doc.note ?? '',
+    image: doc.image,
+    active: doc.active !== false,
+    createdAt: doc.createdAt.toISOString(),
+    updatedAt: doc.updatedAt.toISOString(),
+  };
+}
+
+/** Danh sách ảnh QR nhận tiền; `activeOnly` dùng cho trang công khai. */
+export async function listPaymentQrs(activeOnly = false): Promise<PaymentQrJson[]> {
+  const { paymentQrs } = await getCollections();
+  const filter = activeOnly ? { active: true } : {};
+  const docs = await paymentQrs.find(filter).sort({ createdAt: -1 }).limit(MAX_QR_COUNT).toArray();
+  return docs.map(toPaymentQrJson);
 }
 
 export function toConfirmationJson(doc: ConfirmationDoc): ConfirmationJson {
