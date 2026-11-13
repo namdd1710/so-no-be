@@ -82,6 +82,28 @@ export function addDaysIso(isoDate: string, deltaDays: number): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+/** Số ngày tối đa cho một lần thêm theo khoảng (chặn bấm nhầm 10 năm). */
+export const MAX_RANGE_DAYS = 366;
+
+/** Số ngày trong khoảng [from, to], tính cả hai đầu. */
+export function daysInRange(from: string, to: string): number {
+  let count = 0;
+  for (let date = from; date <= to; date = addDaysIso(date, 1)) count += 1;
+  return count;
+}
+
+/**
+ * Danh sách ngày `YYYY-MM-DD` trong [from, to], tăng dần.
+ * Dùng để thêm cùng một khoản cho từng ngày của một khoảng.
+ */
+export function dateRangeList(from: string, to: string, maxDays: number = MAX_RANGE_DAYS): string[] {
+  const dates: string[] = [];
+  for (let date = from; date <= to && dates.length < maxDays; date = addDaysIso(date, 1)) {
+    dates.push(date);
+  }
+  return dates;
+}
+
 /* ------------------------------------------------------------------ */
 /* Tổng theo khoảng ngày                                               */
 /* ------------------------------------------------------------------ */

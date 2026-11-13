@@ -9,6 +9,8 @@ import {
   addDaysIso,
   checkSettlement,
   countRange,
+  dateRangeList,
+  daysInRange,
   filterEntriesByLedgerQuery,
   groupByDate,
   isLockedBySettlement,
@@ -304,6 +306,23 @@ test('range wins over month; inclusive bounds', () => {
     to: '2026-11-11',
   });
   assert.deepEqual(ranged.map((e) => e.date), ['2026-11-10', '2026-11-11']);
+});
+
+test('dateRangeList trải đều mỗi ngày trong khoảng', () => {
+  assert.deepEqual(dateRangeList('2026-10-01', '2026-10-04'), [
+    '2026-10-01',
+    '2026-10-02',
+    '2026-10-03',
+    '2026-10-04',
+  ]);
+  assert.deepEqual(dateRangeList('2026-11-10', '2026-11-10'), ['2026-11-10']);
+  // vắt qua cuối tháng vẫn đúng thứ tự
+  assert.deepEqual(dateRangeList('2026-10-31', '2026-11-02'), ['2026-10-31', '2026-11-01', '2026-11-02']);
+  assert.equal(daysInRange('2026-10-01', '2026-11-11'), 42);
+});
+
+test('dateRangeList tôn trọng giới hạn số ngày', () => {
+  assert.equal(dateRangeList('2020-01-01', '2030-01-01', 10).length, 10);
 });
 
 test('paginateDayGroups clamps page and counts folders', () => {

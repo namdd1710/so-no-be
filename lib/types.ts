@@ -23,7 +23,12 @@ export type EntryDoc = {
   debtorId: ObjectId;
   date: string; // YYYY-MM-DD
   category: string;
+  /** Tổng = unitAmount × quantity (đây là số mọi phép tính sổ dùng). */
   amount: number; // số nguyên VND, cho phép âm
+  /** Đơn giá nhập vào (×1). Khoản cũ chưa có field này → coi như = amount. */
+  unitAmount?: number;
+  /** Số lượng. Khoản cũ chưa có → coi như 1. */
+  quantity?: number;
   note: string;
   createdAt: Date;
   updatedAt: Date;
@@ -64,7 +69,12 @@ export type EntryJson = {
   id: string;
   date: string;
   category: string;
+  /** Tổng của khoản = unitAmount × quantity. */
   amount: number;
+  /** Đơn giá nhập vào (không nhân số lượng). */
+  unitAmount: number;
+  /** Số lượng (≥ 1). */
+  quantity: number;
   note: string;
   editable: boolean;
   createdAt: string;
@@ -127,12 +137,12 @@ export type PublicLedgerResponse = {
   watermark: string | null;
   latestSettlement: { periodEnd: string; amount: number } | null;
   totals: { unsettled: number; unsettledCount: number; settled: number; monthTotal: number };
-  entries: { id: string; date: string; category: string; amount: number; note: string }[];
+  entries: { id: string; date: string; category: string; amount: number; unitAmount: number; quantity: number; note: string }[];
   groups: {
     date: string;
     total: number;
     count: number;
-    entries: { id: string; date: string; category: string; amount: number; note: string }[];
+    entries: { id: string; date: string; category: string; amount: number; unitAmount: number; quantity: number; note: string }[];
   }[];
   settlements: { id: string; periodStart: string | null; periodEnd: string; amount: number; entryCount: number; createdAt: string }[];
   month: string | null;

@@ -2,7 +2,7 @@ import { getCollections } from '@/lib/db';
 import { ApiError, json, readJson, requireAdmin, requireMutation, route } from '@/lib/http';
 import { checkEntryWritable, todayInTimeZone, watermarkOf } from '@/lib/ledger';
 import { toObjectId } from '@/lib/service';
-import { parseAmount, parseEntryDate, parseString } from '@/lib/validate';
+import { parseAmount, parseEntryDate, parseQuantity, parseString } from '@/lib/validate';
 import type { EntryDoc } from '@/lib/types';
 
 export const runtime = 'nodejs';
@@ -48,9 +48,20 @@ export const PATCH = route<Context>(async (request, context) => {
     update.date = date;
   }
   if ('category' in body) update.category = parseString(body.category, { field: 'Danh mục', max: 60, required: true });
-  if ('amount' in body) {
-    const amount = parseAmount(body.amount);
+  // Tiền: client mới gửi `unitAmount` (đơn giá) + `quantity`; client cũ chỉ gửi
+  // `amount` thì coi đó là đơn giá với số lượng 1. Tổng luôn được tính lại.
+  if ('amount' in body || 'unitAmount' in body || 'quantity' in body) {
+    const onlyAmount = 'amount' in body && !('unitAmount' in body) && !('quantity' in body);
+    const unitAmount = onlyAmount
+      ? parseAmount(body.amount)
+      : 'unitAmount' in body
+        ? parseAmount(body.unitAmount)
+        : (entry.unitAmount ?? entry.amount);
+    const quantity = onlyAmount ? 1 : 'quantity' in body ? parseQuantity(body.quantity) : (entry.quantity ?? 1);
+    const amount = parseAmount(unitAmount * quantity);
     if (amount === 0) throw new ApiError(400, 'INVALID_AMOUNT', 'Số tiền không được bằng 0');
+    update.unitAmount = unitAmount;
+    update.quantity = quantity;
     update.amount = amount;
   }
   if ('note' in body) update.note = parseString(body.note, { field: 'Ghi chú', max: 500 });
@@ -64,6 +75,8 @@ export const PATCH = route<Context>(async (request, context) => {
       date: result.date,
       category: result.category,
       amount: result.amount,
+      unitAmount: result.unitAmount ?? result.amount,
+      quantity: result.quantity ?? 1,
       note: result.note ?? '',
       editable: true,
       createdAt: result.createdAt.toISOString(),

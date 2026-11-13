@@ -56,6 +56,19 @@ export function parseAmount(value: unknown): number {
   return rounded;
 }
 
+/**
+ * Số lượng của một khoản ("3 suất cơm"): số nguyên 1..1000.
+ * Không truyền → 1, để dữ liệu cũ và client cũ vẫn gửi được.
+ */
+export function parseQuantity(value: unknown): number {
+  if (value === null || value === undefined || value === '') return 1;
+  const n = typeof value === 'number' ? value : Number(String(value).trim());
+  if (!Number.isInteger(n) || n < 1 || n > 1000) {
+    throw new ApiError(400, 'INVALID_QUANTITY', 'Số lượng phải là số nguyên từ 1 đến 1000');
+  }
+  return n;
+}
+
 /** Ngày `YYYY-MM-DD`, không ở tương lai (BRIEF §5.4). */
 export function parseEntryDate(value: unknown, today: string = todayInTimeZone()): string {
   if (typeof value !== 'string' || !isValidIsoDate(value)) {
