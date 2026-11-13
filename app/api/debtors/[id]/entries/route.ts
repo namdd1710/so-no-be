@@ -10,6 +10,17 @@ export const dynamic = 'force-dynamic';
 
 type Context = { params: Promise<{ id: string }> };
 
+/** Một lần thêm tối đa bao nhiêu khoản (đủ cho một buổi nhập tay). */
+const MAX_ITEMS = 50;
+
+type ParsedItem = {
+  category: string;
+  quantity: number;
+  unitAmount: number;
+  amount: number;
+  note: string;
+};
+
 /** GET /api/debtors/:id/entries — sổ entries (status/month/from/to/page). */
 export const GET = route<Context>(async (request, context) => {
   await requireAdmin(request);
@@ -22,14 +33,18 @@ export const GET = route<Context>(async (request, context) => {
 /**
  * POST /api/debtors/:id/entries — thêm khoản phát sinh.
  *
- * Hai dạng, MỘT bản ghi cho mỗi lần gọi:
- * - một ngày: `{ date, ... }` — không có khoảng.
- * - khoảng ngày: `{ fromDate, toDate, ... }` — lưu `startDate = fromDate`,
- *   `date = toDate` (ngày kết thúc là mốc để nhóm ngày và tính tổng).
+ * Ngày dùng chung cho cả lần thêm:
+ * - một ngày: `{ date }`
+ * - khoảng ngày: `{ fromDate, toDate }` → MỘT bản ghi, `startDate = fromDate`,
+ *   `date = toDate` (ngày kết thúc là mốc nhóm ngày và tính tổng).
+ *
+ * Khoản có thể gửi một hoặc nhiều:
+ * - nhiều: `{ items: [{ category, unitAmount, quantity, note }, ...] }`
+ * - một (client cũ): `{ category, unitAmount, quantity, note }`
  *
  * Tiền: client gửi `unitAmount` (đơn giá ×1) + `quantity`; server tự tính
- * `amount = unitAmount × quantity` và lưu cả ba. Client cũ chỉ gửi `amount`
- * thì coi như đơn giá = amount, số lượng = 1.
+ * `amount = unitAmount × quantity`. Client rất cũ chỉ gửi `amount` thì coi như
+ * đơn giá = amount, số lượng = 1.
  */
 export const POST = route<Context>(async (request, context) => {
   await requireAdmin(request);
@@ -41,7 +56,7 @@ export const POST = route<Context>(async (request, context) => {
   const body = await readJson(request);
   const today = todayInTimeZone();
 
-  // ----- ngày: một ngày hay một khoảng (vẫn chỉ một bản ghi) -----
+  // ----- ngày: một ngày hay một khoảng (vẫn một bản ghi mỗi khoản) -----
   const hasFrom = body.fromDate !== undefined && body.fromDate !== null && body.fromDate !== '';
   const hasTo = body.toDate !== undefined && body.toDate !== null && body.toDate !== '';
   const isRange = hasFrom || hasTo;
@@ -60,15 +75,25 @@ export const POST = route<Context>(async (request, context) => {
   }
 
   const startDate = isRange ? parsedFrom : null;
+  const entryType: EntryType = isRange ? 'range' : 'single';
 
-  // ----- tiền: đơn giá × số lượng -----
-  const category = parseString(body.category, { field: 'Danh mục', max: 60, required: true });
-  const quantity = parseQuantity(body.quantity);
-  const unitAmount = parseAmount('unitAmount' in body ? body.unitAmount : body.amount);
-  const amount = parseAmount(unitAmount * quantity);
-  const note = parseString(body.note, { field: 'Ghi chú', max: 500 });
+  // ----- danh sách khoản: một hoặc nhiều -----
+  const rawItems = Array.isArray(body.items) && body.items.length > 0 ? body.items : [body];
+  if (rawItems.length > MAX_ITEMS) {
+    throw new ApiError(400, 'TOO_MANY_ITEMS', `Mỗi lần chỉ thêm được tối đa ${MAX_ITEMS} khoản`);
+  }
 
-  if (amount === 0) throw new ApiError(400, 'INVALID_AMOUNT', 'Số tiền không được bằng 0');
+  const items: ParsedItem[] = rawItems.map((raw, index) => {
+    const label = rawItems.length > 1 ? `Khoản ${index + 1}: ` : '';
+    const item = (raw ?? {}) as Record<string, unknown>;
+    const category = parseString(item.category, { field: `${label}Danh mục`, max: 60, required: true });
+    const quantity = parseQuantity(item.quantity);
+    const unitAmount = parseAmount('unitAmount' in item ? item.unitAmount : item.amount);
+    const amount = parseAmount(unitAmount * quantity);
+    if (amount === 0) throw new ApiError(400, 'INVALID_AMOUNT', `${label} số tiền không được bằng 0`);
+    const note = parseString(item.note, { field: `${label}Ghi chú`, max: 500 });
+    return { category, quantity, unitAmount, amount, note };
+  });
 
   const { entries, settlements } = await getCollections();
   const settlementDocs = await settlements
@@ -83,44 +108,46 @@ export const POST = route<Context>(async (request, context) => {
     if (!guard.ok) throw new ApiError(409, guard.code, guard.message);
   }
 
-  // Phân biệt khoản thêm lẻ và khoản theo khoảng ngày.
-  const entryType: EntryType = isRange ? 'range' : 'single';
-
   const now = new Date();
-  const doc: Omit<EntryDoc, '_id'> = {
+  const docs: Omit<EntryDoc, '_id'>[] = items.map((item) => ({
     debtorId: toObjectId(id),
     date,
     startDate,
-    category,
-    amount,
-    unitAmount,
-    quantity,
+    category: item.category,
+    amount: item.amount,
+    unitAmount: item.unitAmount,
+    quantity: item.quantity,
     entryType,
-    note,
+    note: item.note,
     createdAt: now,
     updatedAt: now,
     deletedAt: null,
-  };
-  const result = await entries.insertOne(doc as EntryDoc);
+  }));
+
+  const result = await entries.insertMany(docs as EntryDoc[]);
+  const created = docs.map((doc, index) => ({
+    id: result.insertedIds[index]!.toString(),
+    date: doc.date,
+    startDate: doc.startDate ?? null,
+    endDate: startDate ? doc.date : null,
+    category: doc.category,
+    amount: doc.amount,
+    unitAmount: doc.unitAmount ?? doc.amount,
+    quantity: doc.quantity ?? 1,
+    entryType,
+    note: doc.note,
+    editable: true,
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+  }));
 
   return json(
     {
-      entry: {
-        id: result.insertedId.toString(),
-        date,
-        startDate,
-        endDate: isRange ? date : null,
-        category,
-        amount,
-        unitAmount,
-        quantity,
-        entryType,
-        note,
-        editable: true,
-        createdAt: now.toISOString(),
-        updatedAt: now.toISOString(),
-      },
-      createdCount: 1,
+      // `entry` giữ nguyên cho client cũ; `entries` cho trường hợp thêm nhiều khoản.
+      entry: created[0],
+      entries: created,
+      createdCount: created.length,
+      createdTotal: created.reduce((sum, entry) => sum + entry.amount, 0),
     },
     { status: 201 },
   );
