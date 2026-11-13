@@ -17,6 +17,32 @@ export const GET = route<Context>(async (request, context) => {
   return json(await loadLedger(id, q));
 });
 
+/**
+ * DELETE /api/debtors/:id — xoá HẲN con nợ kèm toàn bộ khoản và lịch sử chốt.
+ *
+ * Không thể hoàn tác: đây là thao tác xoá thật, khác với lưu trữ (`archived: true`)
+ * chỉ ẩn khỏi danh sách và giữ nguyên dữ liệu.
+ */
+export const DELETE = route<Context>(async (request, context) => {
+  await requireAdmin(request);
+  requireMutation(request);
+
+  const { id } = await context.params;
+  const debtor = await findDebtorById(id);
+  const { debtors, entries, settlements } = await getCollections();
+
+  const [entryResult, settlementResult] = await Promise.all([
+    entries.deleteMany({ debtorId: debtor._id }),
+    settlements.deleteMany({ debtorId: debtor._id }),
+  ]);
+  await debtors.deleteOne({ _id: debtor._id });
+
+  return json({
+    ok: true,
+    deleted: { entries: entryResult.deletedCount, settlements: settlementResult.deletedCount },
+  });
+});
+
 /** PATCH /api/debtors/:id — sửa tên/SĐT/ghi chú hoặc lưu trữ. KHÔNG đổi accessCode. */
 export const PATCH = route<Context>(async (request, context) => {
   await requireAdmin(request);
