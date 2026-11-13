@@ -135,6 +135,26 @@ export type PaginationMeta = {
   totalPages: number;
 };
 
+/** Con nợ tự báo "đã chuyển khoản" để chủ nợ kiểm tra và xác nhận đã nhận. */
+export type ConfirmationDoc = {
+  _id: ObjectId;
+  debtorId: ObjectId;
+  amount: number;
+  note: string;
+  status: 'pending' | 'confirmed' | 'rejected';
+  declaredAt: Date;
+  resolvedAt: Date | null;
+};
+
+export type ConfirmationJson = {
+  id: string;
+  amount: number;
+  note: string;
+  status: 'pending' | 'confirmed' | 'rejected';
+  declaredAt: string;
+  resolvedAt: string | null;
+};
+
 /** Danh mục kèm đơn giá gần nhất — dùng để tự điền giá khi thêm khoản. */
 export type CategoryDoc = {
   _id: ObjectId;
@@ -169,6 +189,8 @@ export type LedgerResponse = {
   categories: string[];
   /** Cùng danh sách `categories` nhưng kèm đơn giá gần nhất. */
   categoryDefaults: CategoryJson[];
+  /** Các lần con nợ báo đã chuyển khoản (mới nhất trước). */
+  confirmations: ConfirmationJson[];
 };
 
 export type PublicLedgerResponse = {

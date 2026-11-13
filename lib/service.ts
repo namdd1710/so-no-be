@@ -21,6 +21,8 @@ import {
 } from './ledger';
 import { ApiError } from './http';
 import type {
+  ConfirmationDoc,
+  ConfirmationJson,
   DebtorDoc,
   DebtorSummary,
   EntryDoc,
@@ -210,15 +212,27 @@ export async function rememberCategoryPrices(
   }
 }
 
+export function toConfirmationJson(doc: ConfirmationDoc): ConfirmationJson {
+  return {
+    id: doc._id.toString(),
+    amount: doc.amount,
+    note: doc.note ?? '',
+    status: doc.status,
+    declaredAt: doc.declaredAt.toISOString(),
+    resolvedAt: doc.resolvedAt ? doc.resolvedAt.toISOString() : null,
+  };
+}
+
 export async function loadLedger(debtorId: string, query: LedgerQueryInput = {}): Promise<LedgerResponse> {
   const debtor = await findDebtorById(debtorId);
-  const { entries, settlements, categories: categoryCollection } = await getCollections();
+  const { entries, settlements, categories: categoryCollection, confirmations } = await getCollections();
   const today = todayInTimeZone();
 
-  const [entryDocs, settlementDocs, storedCategories] = await Promise.all([
+  const [entryDocs, settlementDocs, storedCategories, confirmationDocs] = await Promise.all([
     entries.find({ debtorId: debtor._id, deletedAt: null }).sort({ date: -1, createdAt: 1 }).toArray(),
     settlements.find({ debtorId: debtor._id }).sort({ periodEnd: -1 }).toArray(),
     categoryCollection.find({ debtorId: debtor._id }).toArray(),
+    confirmations.find({ debtorId: debtor._id }).sort({ declaredAt: -1 }).limit(30).toArray(),
   ]);
 
   const watermark = watermarkOf(settlementDocs);
@@ -289,6 +303,7 @@ export async function loadLedger(debtorId: string, query: LedgerQueryInput = {})
     pagination,
     categories,
     categoryDefaults,
+    confirmations: confirmationDocs.map(toConfirmationJson),
   };
 }
 

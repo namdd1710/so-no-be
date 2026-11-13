@@ -7,7 +7,7 @@
 
 import { setServers } from 'node:dns';
 import { MongoClient, type Db } from 'mongodb';
-import type { CategoryDoc, DebtorDoc, EntryDoc, SettlementDoc } from './types';
+import type { CategoryDoc, ConfirmationDoc, DebtorDoc, EntryDoc, SettlementDoc } from './types';
 
 const DEFAULT_DB = 'so_no';
 
@@ -85,6 +85,7 @@ async function ensureIndexes(db: Db): Promise<void> {
       await db
         .collection<CategoryDoc>('categories')
         .createIndex({ debtorId: 1, name: 1 }, { unique: true });
+      await db.collection<ConfirmationDoc>('confirmations').createIndex({ debtorId: 1, declaredAt: -1 });
     })().catch((error) => {
       cache.indexes = null;
       throw error;
@@ -108,6 +109,7 @@ export async function getCollections() {
     entries: db.collection<EntryDoc>('entries'),
     settlements: db.collection<SettlementDoc>('settlements'),
     categories: db.collection<CategoryDoc>('categories'),
+    confirmations: db.collection<ConfirmationDoc>('confirmations'),
   };
 }
 

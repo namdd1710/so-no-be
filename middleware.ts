@@ -18,6 +18,9 @@ export async function middleware(request: NextRequest) {
 
   if (SAFE_METHODS.has(request.method)) return NextResponse.next();
   if (PUBLIC_WRITE_ROUTES.has(pathname.replace(/\/+$/, ''))) return NextResponse.next();
+  // Route công khai: con nợ KHÔNG có session nên phải cho ghi (báo đã chuyển
+  // khoản). Mỗi route tự kiểm tra mã truy cập + rate limit theo IP.
+  if (pathname.startsWith('/api/public/')) return NextResponse.next();
 
   const token = readSessionCookie(request.headers.get('cookie'));
   const session = await verifySessionToken(token);
