@@ -7,14 +7,16 @@
  * này gom các bản ghi cũ liền ngày, cùng con nợ/danh mục/đơn giá/số lượng/ghi
  * chú thành một bản ghi duy nhất.
  *
- *   node --env-file=.env.local scripts/collapse-range-entries.mjs           # xem trước (không ghi)
- *   node --env-file=.env.local scripts/collapse-range-entries.mjs --apply   # ghi thật
+ *   node --env-file=.env.local scripts/collapse-range-entries.mjs                          # xem trước
+ *   node --env-file=.env.local scripts/collapse-range-entries.mjs --apply                  # ẩn mềm phần thừa
+ *   node --env-file=.env.local scripts/collapse-range-entries.mjs --apply --hard           # XOÁ HẲN phần thừa
  *
- * Không xoá cứng: các bản ghi thừa bị đánh dấu `deletedAt` để vẫn giữ dấu vết.
+ * Mặc định chỉ ẩn mềm (`deletedAt`) để còn dấu vết; `--hard` xoá hẳn khỏi DB.
  */
 import { MongoClient } from 'mongodb';
 
 const APPLY = process.argv.includes('--apply');
+const HARD = process.argv.includes('--hard');
 const URI = process.env.MONGODB_URI;
 if (!URI) {
   console.error('Thiếu MONGODB_URI. Chạy với --env-file=.env.local');
@@ -90,13 +92,13 @@ const scopes = plan.map((run) => {
 });
 
 const totalRemove = scopes.reduce((sum, scope) => sum + scope.removeIds.length, 0);
-console.log(`Gom ${scopes.length} khoảng, giữ ${scopes.length} bản ghi, ẩn ${totalRemove} bản ghi thừa:`);
+console.log(`Gom ${scopes.length} khoảng, giữ ${scopes.length} bản ghi, bỏ ${totalRemove} bản ghi thừa:`);
 for (const scope of scopes) {
   console.log(`  ${scope.category}: ${scope.from} → ${scope.to} (${scope.days} ngày, ${scope.amount}₫/ngày)`);
 }
 
 if (!APPLY) {
-  console.log('\nĐây là bản xem trước. Thêm --apply để ghi thật.');
+  console.log('\nĐây là bản xem trước. Thêm --apply để ghi thật (kèm --hard nếu muốn xoá hẳn).');
   await client.close();
   process.exit(0);
 }
@@ -104,11 +106,17 @@ if (!APPLY) {
 const now = new Date();
 for (const scope of scopes) {
   await entries.updateOne({ _id: scope.keepId }, { $set: { startDate: scope.from, updatedAt: now } });
-  await entries.updateMany(
-    { _id: { $in: scope.removeIds } },
-    { $set: { deletedAt: now, updatedAt: now } },
-  );
+  if (HARD) {
+    await entries.deleteMany({ _id: { $in: scope.removeIds } });
+  } else {
+    await entries.updateMany(
+      { _id: { $in: scope.removeIds } },
+      { $set: { deletedAt: now, updatedAt: now } },
+    );
+  }
 }
 
-console.log(`\nXong: đã gom ${scopes.length} khoảng, ẩn ${totalRemove} bản ghi thừa.`);
+console.log(
+  `\nXong: đã gom ${scopes.length} khoảng, ${HARD ? 'xoá hẳn' : 'ẩn'} ${totalRemove} bản ghi thừa.`,
+);
 await client.close();
