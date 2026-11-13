@@ -76,6 +76,7 @@ function toEntryJson(doc: EntryDoc, watermark: string | null): EntryJson {
     // Khoản cũ (trước khi có số lượng) rơi về đơn giá = tổng, số lượng = 1.
     unitAmount: doc.unitAmount ?? doc.amount,
     quantity: doc.quantity ?? 1,
+    entryType: doc.entryType ?? 'single',
     note: doc.note ?? '',
     editable: watermark === null || doc.date > watermark,
     createdAt: iso(doc.createdAt) ?? '',
@@ -282,6 +283,7 @@ export async function loadPublicLedger(code: string, query: LedgerQueryInput = {
     amount: doc.amount,
     unitAmount: doc.unitAmount ?? doc.amount,
     quantity: doc.quantity ?? 1,
+    entryType: doc.entryType ?? 'single',
     note: doc.note ?? '',
   }));
 

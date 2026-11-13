@@ -77,6 +77,8 @@ export const PATCH = route<Context>(async (request, context) => {
       amount: result.amount,
       unitAmount: result.unitAmount ?? result.amount,
       quantity: result.quantity ?? 1,
+      // Sửa khoản không đổi nguồn tạo — khoản theo khoảng ngày vẫn là `range`.
+      entryType: result.entryType ?? 'single',
       note: result.note ?? '',
       editable: true,
       createdAt: result.createdAt.toISOString(),

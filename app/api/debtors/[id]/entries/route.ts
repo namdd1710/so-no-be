@@ -3,7 +3,7 @@ import { ApiError, json, readJson, requireAdmin, requireMutation, route } from '
 import { MAX_RANGE_DAYS, checkEntryWritable, dateRangeList, daysInRange, todayInTimeZone, watermarkOf } from '@/lib/ledger';
 import { findDebtorById, loadLedger, toObjectId } from '@/lib/service';
 import { parseAmount, parseEntryDate, parseLedgerQuery, parseQuantity, parseString } from '@/lib/validate';
-import type { EntryDoc } from '@/lib/types';
+import type { EntryDoc, EntryType } from '@/lib/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -84,6 +84,9 @@ export const POST = route<Context>(async (request, context) => {
     );
   }
 
+  // Phân biệt khoản thêm lẻ và khoản sinh ra từ khoảng ngày.
+  const entryType: EntryType = isRange ? 'range' : 'single';
+
   const now = new Date();
   const docs: Omit<EntryDoc, '_id'>[] = dates.map((date) => ({
     debtorId: toObjectId(id),
@@ -92,6 +95,7 @@ export const POST = route<Context>(async (request, context) => {
     amount,
     unitAmount,
     quantity,
+    entryType,
     note,
     createdAt: now,
     updatedAt: now,
@@ -106,6 +110,7 @@ export const POST = route<Context>(async (request, context) => {
     amount,
     unitAmount,
     quantity,
+    entryType,
     note,
     editable: true,
     createdAt: now.toISOString(),
