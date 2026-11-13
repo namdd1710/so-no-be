@@ -45,7 +45,8 @@ export const PATCH = route<Context>(async (request, context) => {
     const date = parseEntryDate(body.date, today);
     const guard = checkEntryWritable(date, watermark);
     if (!guard.ok) throw new ApiError(409, guard.code, guard.message);
-    if (entry.startDate && entry.startDate > date) {
+    // Nếu request cũng gửi `startDate` thì cặp ngày được kiểm ở nhánh dưới.
+    if (!('startDate' in body) && entry.startDate && entry.startDate > date) {
       throw new ApiError(400, 'INVALID_RANGE', 'Ngày kết thúc phải sau hoặc bằng ngày bắt đầu của khoảng');
     }
     update.date = date;
@@ -55,6 +56,7 @@ export const PATCH = route<Context>(async (request, context) => {
   if ('startDate' in body) {
     if (body.startDate === null || body.startDate === '') {
       update.startDate = null;
+      update.entryType = 'single';
     } else {
       const startDate = parseEntryDate(body.startDate, today);
       const guard = checkEntryWritable(startDate, watermark);
@@ -64,6 +66,7 @@ export const PATCH = route<Context>(async (request, context) => {
         throw new ApiError(400, 'INVALID_RANGE', 'Ngày bắt đầu phải trước hoặc bằng ngày kết thúc');
       }
       update.startDate = startDate;
+      update.entryType = 'range';
     }
   }
   if ('category' in body) update.category = parseString(body.category, { field: 'Danh mục', max: 60, required: true });
