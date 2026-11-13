@@ -393,10 +393,20 @@ export async function loadPublicLedger(code: string, query: LedgerQueryInput = {
   const active = settlementDocs.filter((s) => s.status === 'active');
   const latest = latestActiveSettlement(settlementDocs);
 
+  // Ngày bắt đầu của phần còn nợ: lấy mốc sớm nhất trong các khoản chưa chốt
+  // (khoảng ngày thì tính từ startDate). Chưa chốt lần nào thì tính từ khoản
+  // đầu tiên, để nội dung chuyển khoản luôn đủ "từ ngày … đến ngày …".
+  const unpaidDocs = watermark ? entryDocs.filter((doc) => doc.date > watermark) : entryDocs;
+  const debtFrom = unpaidDocs.reduce<string | null>((min, doc) => {
+    const start = doc.startDate ?? doc.date;
+    return min === null || start < min ? start : min;
+  }, null);
+
   return {
     name: debtor.name,
     today,
     watermark,
+    debtFrom,
     latestSettlement: latest ? { periodEnd: latest.periodEnd, amount: latest.amount } : null,
     totals: {
       unsettled: unsettled(entryDocs, watermark, today),

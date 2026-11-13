@@ -228,6 +228,8 @@ export type PublicLedgerResponse = {
   watermark: string | null;
   latestSettlement: { periodEnd: string; amount: number } | null;
   totals: { unsettled: number; unsettledCount: number; settled: number; monthTotal: number };
+  /** Ngày sớm nhất của phần còn nợ — mốc "trả nợ từ ngày" khi chuyển khoản. */
+  debtFrom: string | null;
   /** Lời báo đã chuyển khoản của chính con nợ này (kèm phản hồi của chủ nợ). */
   confirmations: {
     id: string;
