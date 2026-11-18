@@ -177,9 +177,13 @@ export async function listDebtors(options: ListDebtorsOptions = {}): Promise<Deb
     else settlementsByDebtor.set(key, [row]);
   }
 
-  return docs.map((doc) =>
+  const summaries = docs.map((doc) =>
     summarise(doc, entriesByDebtor.get(doc._id.toString()) ?? [], settlementsByDebtor.get(doc._id.toString()) ?? [], today),
   );
+
+  // Sổ nợ: ai nợ nhiều nhất lên đầu. Cùng số tiền thì xếp theo tên cho ổn định
+  // (và để kết quả không nhảy qua lại giữa các lần tải).
+  return summaries.sort((a, b) => b.unsettled - a.unsettled || a.name.localeCompare(b.name, 'vi'));
 }
 
 /* ------------------------------- Ledger ------------------------------ */
