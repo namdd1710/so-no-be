@@ -92,7 +92,7 @@ export const PATCH = route<Context>(async (request, context) => {
   if (!result) throw new ApiError(404, 'NOT_FOUND', 'Không tìm thấy khoản này');
 
   // Sửa giá/danh mục cũng cập nhật giá mặc định cho lần nhập sau.
-  await rememberCategoryPrices(entry.debtorId, [
+  await rememberCategoryPrices([
     { category: result.category, unitAmount: result.unitAmount ?? result.amount },
   ]);
 

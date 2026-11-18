@@ -22,6 +22,8 @@ import {
 import { ApiError } from './http';
 import { MAX_QR_COUNT } from './payment-qr';
 import type {
+  CategoryDoc,
+  CategoryJson,
   ConfirmationDoc,
   ConfirmationJson,
   DebtorDoc,
@@ -182,14 +184,75 @@ export async function listDebtors(options: ListDebtorsOptions = {}): Promise<Deb
 
 /* ------------------------------- Ledger ------------------------------ */
 
+export function toCategoryJson(doc: CategoryDoc): CategoryJson {
+  return { id: doc._id.toString(), name: doc.name, unitPrice: doc.unitPrice };
+}
+
+/** Danh mục dùng chung, sắp xếp theo tên tiếng Việt. */
+export async function listCategories(): Promise<CategoryJson[]> {
+  const { categories } = await getCollections();
+  const docs = await categories.find({}).sort({ name: 1 }).toArray();
+  return docs.map(toCategoryJson).sort((a, b) => a.name.localeCompare(b.name, 'vi'));
+}
+
+/** Báo lỗi 409 nếu tên danh mục đã tồn tại (bỏ qua chính nó khi sửa). */
+async function assertCategoryNameFree(name: string, excludeId?: ObjectId): Promise<void> {
+  const { categories } = await getCollections();
+  const filter: Record<string, unknown> = { name };
+  if (excludeId) filter._id = { $ne: excludeId };
+  if (await categories.findOne(filter)) {
+    throw new ApiError(409, 'DUPLICATE_CATEGORY', `Danh mục "${name}" đã có rồi`);
+  }
+}
+
+/** Thêm danh mục dùng chung (tên + đơn giá cố định). */
+export async function createCategory(name: string, unitPrice: number): Promise<CategoryJson> {
+  await assertCategoryNameFree(name);
+  const now = new Date();
+  const { categories } = await getCollections();
+  const doc = { name, unitPrice: Math.abs(unitPrice), createdAt: now, updatedAt: now };
+  try {
+    const result = await categories.insertOne(doc as CategoryDoc);
+    return toCategoryJson({ ...doc, _id: result.insertedId } as CategoryDoc);
+  } catch (error) {
+    // Hai request cùng lúc: index unique chặn ở DB, đổi thành lỗi 409 dễ hiểu.
+    if (error instanceof Error && /E11000/.test(error.message)) {
+      throw new ApiError(409, 'DUPLICATE_CATEGORY', `Danh mục "${name}" đã có rồi`);
+    }
+    throw error;
+  }
+}
+
+/** Sửa tên/đơn giá của một danh mục. */
+export async function updateCategory(
+  id: string,
+  patch: { name?: string; unitPrice?: number },
+): Promise<CategoryJson> {
+  const objectId = toObjectId(id);
+  if (patch.name !== undefined) await assertCategoryNameFree(patch.name, objectId);
+
+  const update: Record<string, unknown> = { updatedAt: new Date() };
+  if (patch.name !== undefined) update.name = patch.name;
+  if (patch.unitPrice !== undefined) update.unitPrice = Math.abs(patch.unitPrice);
+
+  const { categories } = await getCollections();
+  const doc = await categories.findOneAndUpdate({ _id: objectId }, { $set: update }, { returnDocument: 'after' });
+  if (!doc) throw new ApiError(404, 'NOT_FOUND', 'Không tìm thấy danh mục này');
+  return toCategoryJson(doc);
+}
+
+/** Xoá danh mục. Khoản cũ vẫn giữ tên danh mục dạng chuỗi nên không mất dữ liệu. */
+export async function deleteCategory(id: string): Promise<void> {
+  const { categories } = await getCollections();
+  const result = await categories.deleteOne({ _id: toObjectId(id) });
+  if (result.deletedCount === 0) throw new ApiError(404, 'NOT_FOUND', 'Không tìm thấy danh mục này');
+}
+
 /**
- * Ghi nhớ đơn giá gần nhất của từng danh mục để lần sau chọn là tự điền.
- * Một bản ghi cho mỗi (con nợ, tên danh mục); giá lưu dạng dương.
+ * Bổ sung danh mục còn thiếu khi gặp một tên mới (nhập tự do trong lúc thêm
+ * khoản). Danh mục đã có thì giữ nguyên đơn giá do chủ nợ đặt — không tự đè.
  */
-export async function rememberCategoryPrices(
-  debtorId: ObjectId,
-  items: { category: string; unitAmount: number }[],
-): Promise<void> {
+export async function rememberCategoryPrices(items: { category: string; unitAmount: number }[]): Promise<void> {
   const valid = items.filter((item) => item.category && item.unitAmount !== 0);
   if (valid.length === 0) return;
 
@@ -199,19 +262,19 @@ export async function rememberCategoryPrices(
     await Promise.all(
       valid.map((item) =>
         categories.updateOne(
-          { debtorId, name: item.category },
+          { name: item.category },
           {
-            $set: { unitPrice: Math.abs(item.unitAmount), lastUsedAt: now, updatedAt: now },
-            $setOnInsert: { createdAt: now },
+            $setOnInsert: { unitPrice: Math.abs(item.unitAmount), createdAt: now },
+            $set: { updatedAt: now },
           },
           { upsert: true },
         ),
       ),
     );
   } catch (error) {
-    // Chỉ là ghi nhớ giá cho lần sau — lỗi ở đây không được làm hỏng việc lưu
-    // khoản mà người dùng vừa thực hiện.
-    console.warn('[service] Không lưu được giá danh mục:', error instanceof Error ? error.message : error);
+    // Chỉ là bổ sung danh mục cho lần sau — lỗi ở đây không được làm hỏng việc
+    // lưu khoản mà người dùng vừa thực hiện.
+    console.warn('[service] Không lưu được danh mục:', error instanceof Error ? error.message : error);
   }
 }
 
@@ -257,7 +320,7 @@ export async function loadLedger(debtorId: string, query: LedgerQueryInput = {})
   const [entryDocs, settlementDocs, storedCategories, confirmationDocs] = await Promise.all([
     entries.find({ debtorId: debtor._id, deletedAt: null }).sort({ date: -1, createdAt: 1 }).toArray(),
     settlements.find({ debtorId: debtor._id }).sort({ periodEnd: -1 }).toArray(),
-    categoryCollection.find({ debtorId: debtor._id }).toArray(),
+    categoryCollection.find({}).sort({ name: 1 }).toArray(),
     confirmations.find({ debtorId: debtor._id }).sort({ declaredAt: -1 }).limit(30).toArray(),
   ]);
 
@@ -289,19 +352,12 @@ export async function loadLedger(debtorId: string, query: LedgerQueryInput = {})
 
   const filterTotal = filteredDocs.reduce((sum, doc) => sum + doc.amount, 0);
 
-  const categories = [
-    ...new Set([...storedCategories.map((doc) => doc.name), ...entryDocs.map((doc) => doc.category).filter(Boolean)]),
-  ].sort((a, b) => a.localeCompare(b, 'vi'));
-
-  // Giá mặc định: bảng `categories` thắng; danh mục chỉ có trong lịch sử thì lấy
-  // đơn giá của khoản mới nhất (entryDocs đã sắp xếp theo ngày giảm dần).
-  const priceByName = new Map<string, number>();
-  for (const doc of entryDocs) {
-    const price = Math.abs(doc.unitAmount ?? doc.amount);
-    if (!priceByName.has(doc.category) && price > 0) priceByName.set(doc.category, price);
-  }
-  for (const doc of storedCategories) priceByName.set(doc.name, doc.unitPrice);
-  const categoryDefaults = categories.map((name) => ({ name, unitPrice: priceByName.get(name) ?? 0 }));
+  // Danh mục lấy từ bộ dùng chung (collection `categories`), không phụ thuộc
+  // con nợ — thêm khoản chỉ việc chọn danh mục rồi nhập số lượng.
+  const categoryDefaults = storedCategories
+    .map(toCategoryJson)
+    .sort((a, b) => a.name.localeCompare(b.name, 'vi'));
+  const categories = categoryDefaults.map((item) => item.name);
 
   const summary = summarise(debtor, entryDocs, settlementDocs, today);
   const active = settlementDocs.filter((s) => s.status === 'active');
@@ -435,11 +491,7 @@ export async function loadPublicLedger(code: string, query: LedgerQueryInput = {
   };
 }
 
-/** Danh sách danh mục đã dùng (autocomplete) — không phụ thuộc con nợ. */
-export async function usedCategories(debtorId?: string): Promise<string[]> {
-  const { entries } = await getCollections();
-  const filter: Record<string, unknown> = { deletedAt: null };
-  if (debtorId) filter.debtorId = toObjectId(debtorId);
-  const values = await entries.distinct('category', filter);
-  return values.filter((value): value is string => typeof value === 'string' && value.length > 0).sort((a, b) => a.localeCompare(b, 'vi'));
+/** Tên các danh mục dùng chung (autocomplete) — không phụ thuộc con nợ. */
+export async function usedCategories(): Promise<string[]> {
+  return (await listCategories()).map((item) => item.name);
 }

@@ -88,10 +88,14 @@ async function ensureIndexes(db: Db): Promise<void> {
       await db.collection<EntryDoc>('entries').createIndex({ debtorId: 1, date: -1 });
       await db.collection<EntryDoc>('entries').createIndex({ debtorId: 1, deletedAt: 1, date: -1 });
       await db.collection<SettlementDoc>('settlements').createIndex({ debtorId: 1, periodEnd: -1 });
-      // Danh mục + đơn giá gần nhất, mỗi tên một bản ghi cho mỗi con nợ.
+      // Danh mục dùng chung: mỗi tên một bản ghi, kèm đơn giá cố định.
+      // Bản ghi cũ (danh mục riêng từng con nợ) được chuyển bằng
+      // `scripts/migrate-categories.mjs`; index cũ phải bỏ trước khi gộp.
       await db
         .collection<CategoryDoc>('categories')
-        .createIndex({ debtorId: 1, name: 1 }, { unique: true });
+        .dropIndex('debtorId_1_name_1')
+        .catch(() => undefined);
+      await db.collection<CategoryDoc>('categories').createIndex({ name: 1 }, { unique: true });
       await db.collection<ConfirmationDoc>('confirmations').createIndex({ debtorId: 1, declaredAt: -1 });
       await db.collection<PaymentQrDoc>('payment_qrs').createIndex({ active: 1, createdAt: -1 });
     })().catch((error) => {

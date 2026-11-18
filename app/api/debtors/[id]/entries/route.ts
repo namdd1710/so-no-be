@@ -125,9 +125,8 @@ export const POST = route<Context>(async (request, context) => {
   }));
 
   const result = await entries.insertMany(docs as EntryDoc[]);
-  // Nhớ đơn giá theo danh mục để lần sau chọn là tự điền.
+  // Nhớ đơn giá theo danh mục dùng chung để lần sau chọn là tự điền.
   await rememberCategoryPrices(
-    debtor._id,
     items.map((item) => ({ category: item.category, unitAmount: item.unitAmount })),
   );
   const created = docs.map((doc, index) => ({

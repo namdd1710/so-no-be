@@ -184,19 +184,21 @@ export type ConfirmationJson = {
   resolvedAt: string | null;
 };
 
-/** Danh mục kèm đơn giá gần nhất — dùng để tự điền giá khi thêm khoản. */
+/**
+ * Danh mục dùng chung cho mọi con nợ: tên + đơn giá cố định.
+ * Thêm khoản chỉ cần chọn danh mục và nhập số lượng.
+ */
 export type CategoryDoc = {
   _id: ObjectId;
-  debtorId: ObjectId;
   name: string;
-  /** Đơn giá ×1 gần nhất của danh mục này. */
+  /** Đơn giá ×1 của danh mục (luôn dương). */
   unitPrice: number;
-  lastUsedAt: Date;
   createdAt: Date;
   updatedAt: Date;
 };
 
 export type CategoryJson = {
+  id: string;
   name: string;
   unitPrice: number;
 };
