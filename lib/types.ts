@@ -19,6 +19,11 @@ export type DebtorDoc = {
   active: boolean;
   createdAt: Date;
   archivedAt: Date | null;
+  /**
+   * Ngày con nợ hẹn trả phần CHƯA TRẢ (tổng cả sổ, không phải từng khoản).
+   * `null`/không có = chưa hẹn. Cho phép ngày ở tương lai.
+   */
+  dueDate?: string | null;
 };
 
 export type EntryDoc = {
@@ -74,6 +79,8 @@ export type DebtorSummary = {
   active: boolean;
   createdAt: string;
   archivedAt: string | null;
+  /** Ngày hẹn trả tổng nợ chưa trả; `null` = chưa hẹn. */
+  dueDate: string | null;
   unsettled: number;
   settled: number;
   lastSettledAt: string | null;

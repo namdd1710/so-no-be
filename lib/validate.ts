@@ -91,6 +91,18 @@ export function parseLedgerStatus(value: string | null): LedgerStatus {
   throw new ApiError(400, 'INVALID_STATUS', 'status phải là unsettled, settled hoặc all');
 }
 
+/**
+ * Ngày hẹn trả của con nợ: `YYYY-MM-DD` (được ở tương lai) hoặc null để bỏ hẹn.
+ * Khác `parseEntryDate` — ngày hẹn trả đương nhiên nằm ở tương lai.
+ */
+export function parseDueDate(value: unknown): string | null {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value !== 'string' || !isValidIsoDate(value)) {
+    throw new ApiError(400, 'INVALID_DATE', 'Ngày hẹn trả không hợp lệ (định dạng YYYY-MM-DD)');
+  }
+  return value;
+}
+
 export function parseOptionalIsoDateParam(value: string | null, field: string): string | null {
   if (!value) return null;
   if (!isValidIsoDate(value)) throw new ApiError(400, 'INVALID_DATE', `${field} không hợp lệ (YYYY-MM-DD)`);

@@ -2,7 +2,7 @@ import { generateAccessCode } from '@/lib/access-code';
 import { getCollections } from '@/lib/db';
 import { ApiError, fail, json, readJson, requireAdmin, requireMutation, route } from '@/lib/http';
 import { listDebtors } from '@/lib/service';
-import { parseBooleanish, parseString } from '@/lib/validate';
+import { parseBooleanish, parseDueDate, parseString } from '@/lib/validate';
 import type { DebtorDoc } from '@/lib/types';
 
 export const runtime = 'nodejs';
@@ -32,6 +32,7 @@ export const POST = route(async (request: Request) => {
   const name = parseString(body.name, { field: 'Tên con nợ', max: 80, required: true });
   const phone = parseString(body.phone, { field: 'Số điện thoại', max: 30 });
   const note = parseString(body.note, { field: 'Ghi chú', max: 500 });
+  const dueDate = parseDueDate(body.dueDate);
 
   const { debtors } = await getCollections();
 
@@ -46,6 +47,7 @@ export const POST = route(async (request: Request) => {
       active: true,
       createdAt: new Date(),
       archivedAt: null,
+      dueDate,
     };
     try {
       const result = await debtors.insertOne(doc as DebtorDoc);
@@ -69,6 +71,7 @@ export const POST = route(async (request: Request) => {
         active: created.active,
         createdAt: created.createdAt.toISOString(),
         archivedAt: null,
+        dueDate: created.dueDate ?? null,
         unsettled: 0,
         settled: 0,
         lastSettledAt: null,

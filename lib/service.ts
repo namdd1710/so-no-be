@@ -125,6 +125,7 @@ function summarise(
     active: debtor.active,
     createdAt: iso(debtor.createdAt) ?? '',
     archivedAt: iso(debtor.archivedAt),
+    dueDate: debtor.dueDate ?? null,
     unsettled: unsettled(entries, watermark, today),
     settled: active.reduce((sum, s) => sum + s.amount, 0),
     lastSettledAt: latest?.periodEnd ?? null,

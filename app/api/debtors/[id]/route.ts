@@ -1,7 +1,7 @@
 import { getCollections } from '@/lib/db';
 import { ApiError, json, readJson, requireAdmin, requireMutation, route } from '@/lib/http';
 import { findDebtorById, loadLedger } from '@/lib/service';
-import { parseBooleanish, parseLedgerQuery, parseString } from '@/lib/validate';
+import { parseBooleanish, parseDueDate, parseLedgerQuery, parseString } from '@/lib/validate';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -43,7 +43,10 @@ export const DELETE = route<Context>(async (request, context) => {
   });
 });
 
-/** PATCH /api/debtors/:id — sửa tên/SĐT/ghi chú hoặc lưu trữ. KHÔNG đổi accessCode. */
+/**
+ * PATCH /api/debtors/:id — sửa tên/SĐT/ghi chú, ngày hẹn trả (`dueDate`) hoặc
+ * lưu trữ. KHÔNG đổi accessCode.
+ */
 export const PATCH = route<Context>(async (request, context) => {
   await requireAdmin(request);
   requireMutation(request);
@@ -67,6 +70,8 @@ export const PATCH = route<Context>(async (request, context) => {
     const note = parseString(body.note, { field: 'Ghi chú', max: 500 });
     update.note = note || null;
   }
+  // Ngày hẹn trả tổng nợ: gửi null/'' để bỏ hẹn.
+  if ('dueDate' in body) update.dueDate = parseDueDate(body.dueDate);
 
   const archived = parseBooleanish(body.archived);
   if (archived !== null) {
@@ -91,6 +96,7 @@ export const PATCH = route<Context>(async (request, context) => {
       accessCode: debtor.accessCode,
       active: (updated.active as boolean) ?? debtor.active,
       archivedAt: (updated.archivedAt as Date | null)?.toISOString?.() ?? null,
+      dueDate: (updated.dueDate as string | null | undefined) ?? null,
     },
   });
 });
