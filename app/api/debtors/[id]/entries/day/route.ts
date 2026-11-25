@@ -1,6 +1,6 @@
 import { getCollections } from '@/lib/db';
 import { ApiError, json, readJson, requireAdmin, requireMutation, route } from '@/lib/http';
-import { checkEntryWritable, todayInTimeZone, watermarkOf } from '@/lib/ledger';
+import { checkEntryWritable, todayInTimeZone, watermarkCutoff } from '@/lib/ledger';
 import { findDebtorById } from '@/lib/service';
 import { parseEntryDate } from '@/lib/validate';
 import type { EntryDoc, EntryType } from '@/lib/types';
@@ -41,17 +41,24 @@ export const PATCH = route<Context>(async (request, context) => {
   const { entries, settlements } = await getCollections();
   const settlementDocs = await settlements
     .find({ debtorId: debtor._id })
-    .project<{ periodEnd: string; status: 'active' | 'void' }>({ periodEnd: 1, status: 1 })
+    .project<{ periodEnd: string; status: 'active' | 'void'; createdAt: Date }>({
+      periodEnd: 1,
+      status: 1,
+      createdAt: 1,
+    })
     .toArray();
-  const watermark = watermarkOf(settlementDocs);
-
-  for (const date of new Set([fromDate, toDate])) {
-    const guard = checkEntryWritable(date, watermark);
-    if (!guard.ok) throw new ApiError(409, guard.code, guard.message);
-  }
+  const watermark = watermarkCutoff(settlementDocs);
 
   const docs = await entries.find({ debtorId: debtor._id, date: fromDate, deletedAt: null }).toArray();
   if (docs.length === 0) throw new ApiError(404, 'NOT_FOUND', 'Ngày này không có khoản nào để sửa');
+
+  // Kiểm từng khoản: khoản tạo sau lúc chốt trong cùng ngày chốt vẫn sửa được.
+  for (const doc of docs) {
+    for (const guardDate of new Set([fromDate, toDate])) {
+      const guard = checkEntryWritable(guardDate, watermark, doc.createdAt);
+      if (!guard.ok) throw new ApiError(409, guard.code, guard.message);
+    }
+  }
 
   const now = new Date();
   const update: Partial<EntryDoc> = { date: toDate, updatedAt: now };
@@ -73,7 +80,7 @@ export const PATCH = route<Context>(async (request, context) => {
       if (startDate > toDate) {
         throw new ApiError(400, 'INVALID_RANGE', 'Ngày bắt đầu phải trước hoặc bằng ngày kết thúc');
       }
-      const guard = checkEntryWritable(startDate, watermark);
+      const guard = checkEntryWritable(startDate, watermark, docs[0]?.createdAt);
       if (!guard.ok) throw new ApiError(409, guard.code, guard.message);
       update.entryType = 'range' as EntryType;
       update.startDate = startDate;
@@ -83,10 +90,7 @@ export const PATCH = route<Context>(async (request, context) => {
     }
   }
 
-  const result = await entries.updateMany(
-    { debtorId: debtor._id, date: fromDate, deletedAt: null },
-    { $set: update },
-  );
+  const result = await entries.updateMany({ _id: { $in: docs.map((doc) => doc._id) } }, { $set: update });
 
   return json({
     moved: result.modifiedCount,

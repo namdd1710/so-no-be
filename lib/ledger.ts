@@ -14,6 +14,11 @@ export const TIME_ZONE = 'Asia/Ho_Chi_Minh';
 export type LedgerEntry = {
   date: string; // YYYY-MM-DD
   amount: number; // số nguyên VND, cho phép âm
+  /**
+   * Thời điểm tạo khoản. Cần để biết khoản cùng ngày chốt được tạo TRƯỚC hay
+   * SAU lúc chốt — tạo sau thì vẫn là nợ mới, không thuộc kỳ đã chốt.
+   */
+  createdAt?: Date | string | null;
 };
 
 export type SettlementLike = {
@@ -24,10 +29,24 @@ export type SettlementLike = {
   status: 'active' | 'void';
 };
 
-/** Chỉ cần hai trường này để xác định mốc chốt W. */
+/** Hai trường này xác định mốc chốt W (thêm `createdAt` để biết giờ chốt). */
 export type WatermarkSource = {
   periodEnd: string;
   status: 'active' | 'void';
+  createdAt?: Date | string | null;
+};
+
+/**
+ * Mốc chốt: ngày chốt + thời điểm chốt.
+ *
+ * Chỉ so theo ngày thì mọi khoản của ngày chốt đều bị khoá, kể cả khoản con nợ
+ * vay lại vào buổi tối cùng ngày. Vì vậy mốc chốt giữ cả `at` (lúc tạo
+ * settlement): khoản cùng ngày tạo sau `at` vẫn tính là nợ chưa trả.
+ * `at = null` với settlement cũ chưa có giờ → so theo ngày như trước.
+ */
+export type Watermark = {
+  date: string;
+  at: Date | null;
 };
 
 /* ------------------------------------------------------------------ */
@@ -108,32 +127,32 @@ export function dateRangeList(from: string, to: string, maxDays: number = MAX_RA
 /* Tổng theo khoảng ngày                                               */
 /* ------------------------------------------------------------------ */
 
-/** Σ amount của các entry thoả `from < date <= to`. `from = null` = từ đầu. */
-export function sumRange(entries: LedgerEntry[], from: string | null, to: string): number {
+/** Σ amount của các entry CHƯA chốt và có `date <= to`. */
+export function sumRange(entries: LedgerEntry[], watermark: Watermark | null, to: string): number {
   let total = 0;
   for (const entry of entries) {
     if (entry.date > to) continue;
-    if (from !== null && entry.date <= from) continue;
+    if (isSettledEntry(entry, watermark)) continue;
     total += entry.amount;
   }
   return total;
 }
 
-/** Số entry thoả `from < date <= to`. */
-export function countRange(entries: LedgerEntry[], from: string | null, to: string): number {
+/** Số entry CHƯA chốt và có `date <= to`. */
+export function countRange(entries: LedgerEntry[], watermark: Watermark | null, to: string): number {
   let count = 0;
   for (const entry of entries) {
     if (entry.date > to) continue;
-    if (from !== null && entry.date <= from) continue;
+    if (isSettledEntry(entry, watermark)) continue;
     count += 1;
   }
   return count;
 }
 
-/** Các entry thoả `from < date <= to`, sắp xếp mới nhất trước. */
-export function entriesInRange<T extends LedgerEntry>(entries: T[], from: string | null, to: string): T[] {
+/** Các entry CHƯA chốt và có `date <= to`, sắp xếp mới nhất trước. */
+export function entriesInRange<T extends LedgerEntry>(entries: T[], watermark: Watermark | null, to: string): T[] {
   return entries
-    .filter((entry) => entry.date <= to && (from === null || entry.date > from))
+    .filter((entry) => entry.date <= to && !isSettledEntry(entry, watermark))
     .sort((a, b) => b.date.localeCompare(a.date));
 }
 
@@ -141,11 +160,18 @@ export function entriesInRange<T extends LedgerEntry>(entries: T[], from: string
 /* Mốc chốt (watermark) W                                              */
 /* ------------------------------------------------------------------ */
 
-/** Settlement đang active, sắp theo periodEnd tăng dần. */
+/** Đổi Date/chuỗi ISO sang mili giây; không đọc được thì trả null. */
+function toMs(value: Date | string | null | undefined): number | null {
+  if (!value) return null;
+  const ms = value instanceof Date ? value.getTime() : Date.parse(value);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/** Settlement đang active, sắp theo periodEnd tăng dần (cùng ngày thì lần sau thắng). */
 export function activeSettlements<T extends WatermarkSource>(settlements: T[]): T[] {
   return settlements
     .filter((s) => s.status === 'active')
-    .sort((a, b) => a.periodEnd.localeCompare(b.periodEnd));
+    .sort((a, b) => a.periodEnd.localeCompare(b.periodEnd) || (toMs(a.createdAt) ?? 0) - (toMs(b.createdAt) ?? 0));
 }
 
 /** Settlement active mới nhất (kỳ gần nhất đã chốt). */
@@ -156,31 +182,54 @@ export function latestActiveSettlement<T extends WatermarkSource>(settlements: T
 
 /** `W = periodEnd` của settlement active mới nhất, hoặc `null` nếu chưa chốt lần nào. */
 export function watermarkOf(settlements: WatermarkSource[]): string | null {
-  return latestActiveSettlement(settlements)?.periodEnd ?? null;
+  return watermarkCutoff(settlements)?.date ?? null;
+}
+
+/** Mốc chốt kèm thời điểm chốt (dùng cho mọi phép tính sổ). */
+export function watermarkCutoff(settlements: WatermarkSource[]): Watermark | null {
+  const latest = latestActiveSettlement(settlements);
+  if (!latest) return null;
+  const ms = toMs(latest.createdAt);
+  return { date: latest.periodEnd, at: ms === null ? null : new Date(ms) };
 }
 
 /* ------------------------------------------------------------------ */
 /* Hai hàm cốt lõi (BRIEF §15)                                          */
 /* ------------------------------------------------------------------ */
 
-/** Tổng CHƯA thanh toán: các entry `date > W` và `date <= today`. */
-export function unsettled(entries: LedgerEntry[], watermark: string | null, today: string): number {
+/**
+ * Khoản đã nằm trong kỳ chốt chưa?
+ *
+ * - ngày trước mốc chốt → đã chốt;
+ * - ngày sau mốc chốt → chưa chốt;
+ * - ĐÚNG ngày mốc chốt → chỉ tính là đã chốt khi khoản được tạo trước lúc
+ *   chốt. Vay thêm buổi tối cùng ngày chốt vẫn là nợ mới.
+ */
+export function isSettledEntry(
+  entry: Pick<LedgerEntry, 'date' | 'createdAt'>,
+  watermark: Watermark | null,
+): boolean {
+  if (!watermark) return false;
+  if (entry.date !== watermark.date) return entry.date < watermark.date;
+  if (!watermark.at) return true; // settlement cũ không có giờ chốt
+  const createdAt = toMs(entry.createdAt);
+  if (createdAt === null) return true; // không rõ giờ tạo → coi như trước lúc chốt
+  return createdAt <= watermark.at.getTime();
+}
+
+/** Tổng CHƯA thanh toán: các entry chưa chốt và `date <= today`. */
+export function unsettled(entries: LedgerEntry[], watermark: Watermark | null, today: string): number {
   return sumRange(entries, watermark, today);
 }
 
-/** Tổng sẽ chốt nếu chốt vào ngày `d`: các entry `W < date <= d`. */
-export function settleAmount(entries: LedgerEntry[], watermark: string | null, d: string): number {
+/** Tổng sẽ chốt nếu chốt vào ngày `d`: các entry chưa chốt và `date <= d`. */
+export function settleAmount(entries: LedgerEntry[], watermark: Watermark | null, d: string): number {
   return sumRange(entries, watermark, d);
 }
 
 /** Số khoản sẽ chốt nếu chốt vào ngày `d`. */
-export function settleCount(entries: LedgerEntry[], watermark: string | null, d: string): number {
+export function settleCount(entries: LedgerEntry[], watermark: Watermark | null, d: string): number {
   return countRange(entries, watermark, d);
-}
-
-/** Ngày đã nằm trong kỳ đã chốt chưa (bị khoá sửa/xoá)? */
-export function isLockedBySettlement(date: string, watermark: string | null): boolean {
-  return watermark !== null && date <= watermark;
 }
 
 /* ------------------------------------------------------------------ */
@@ -220,7 +269,7 @@ export type LedgerListFilter = {
   from: string | null;
   to: string | null;
   today: string;
-  watermark: string | null;
+  watermark: Watermark | null;
 };
 
 /** Lọc entry theo status + tháng/khoảng ngày (range thắng month). */
@@ -228,10 +277,10 @@ export function filterEntriesByLedgerQuery<T extends LedgerEntry>(entries: T[], 
   let list = entries;
 
   if (filter.status === 'unsettled') {
-    list = list.filter((e) => e.date <= filter.today && (filter.watermark === null || e.date > filter.watermark));
+    list = list.filter((e) => e.date <= filter.today && !isSettledEntry(e, filter.watermark));
   } else if (filter.status === 'settled') {
     if (filter.watermark === null) return [];
-    list = list.filter((e) => e.date <= filter.watermark!);
+    list = list.filter((e) => isSettledEntry(e, filter.watermark));
   }
 
   const hasRange = Boolean(filter.from || filter.to);
@@ -314,12 +363,12 @@ export function checkSettlement(
   if (periodEnd > today) {
     return { ok: false, code: 'FUTURE_DATE', message: 'Ngày chốt không được ở tương lai' };
   }
-  const watermark = watermarkOf(settlements);
-  if (watermark !== null && periodEnd < watermark) {
+  const watermark = watermarkCutoff(settlements);
+  if (watermark !== null && periodEnd < watermark.date) {
     return {
       ok: false,
       code: 'BEFORE_WATERMARK',
-      message: `Ngày chốt phải sau mốc chốt gần nhất (${watermark})`,
+      message: `Ngày chốt phải sau mốc chốt gần nhất (${watermark.date})`,
     };
   }
   const periodEntries = entriesInRange(entries, watermark, periodEnd);
@@ -329,7 +378,7 @@ export function checkSettlement(
   }
   return {
     ok: true,
-    periodStart: watermark,
+    periodStart: watermark?.date ?? null,
     periodEnd,
     amount: periodEntries.reduce((sum, entry) => sum + entry.amount, 0),
     entryCount,
@@ -338,15 +387,20 @@ export function checkSettlement(
 }
 
 /**
- * Kiểm tra chốt một khoản ăn / sửa vào ngày `date` khi đã có mốc `W`.
- * Khoản nằm trong kỳ đã chốt (date <= W) thì phải huỷ chốt trước.
+ * Kiểm tra thêm/sửa một khoản ở ngày `date` khi đã có mốc chốt.
+ * Khoản thuộc kỳ đã chốt thì phải huỷ chốt trước — trừ khoản được tạo SAU lúc
+ * chốt trong đúng ngày chốt (`createdAt`), vì đó là nợ phát sinh sau khi chốt.
  */
-export function checkEntryWritable(date: string, watermark: string | null): SettleCheck | { ok: true } {
-  if (watermark !== null && date <= watermark) {
+export function checkEntryWritable(
+  date: string,
+  watermark: Watermark | null,
+  createdAt?: Date | string | null,
+): SettleCheck | { ok: true } {
+  if (isSettledEntry({ date, createdAt }, watermark)) {
     return {
       ok: false,
       code: 'LOCKED_PERIOD',
-      message: `Khoản này thuộc kỳ đã chốt (đến ${watermark}). Huỷ chốt kỳ ${watermark} để sửa.`,
+      message: `Khoản này thuộc kỳ đã chốt (đến ${watermark!.date}). Huỷ chốt kỳ ${watermark!.date} để sửa.`,
     };
   }
   return { ok: true };

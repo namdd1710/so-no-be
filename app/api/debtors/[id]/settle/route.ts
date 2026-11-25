@@ -27,11 +27,15 @@ export const GET = route<Context>(async (request, context) => {
   const [existing, rows] = await Promise.all([
     settlements
       .find({ debtorId: debtor._id })
-      .project<{ periodEnd: string; status: 'active' | 'void' }>({ periodEnd: 1, status: 1 })
+      .project<{ periodEnd: string; status: 'active' | 'void'; createdAt: Date }>({
+        periodEnd: 1,
+        status: 1,
+        createdAt: 1,
+      })
       .toArray(),
     entries
       .find({ debtorId: debtor._id, deletedAt: null, date: { $lte: periodEnd } })
-      .project<{ date: string; amount: number }>({ date: 1, amount: 1 })
+      .project<{ date: string; amount: number; createdAt: Date }>({ date: 1, amount: 1, createdAt: 1 })
       .toArray(),
   ]);
 
@@ -82,7 +86,11 @@ export const POST = route<Context>(async (request, context) => {
 
     const existing = await settlements
       .find({ debtorId: debtor._id }, options)
-      .project<{ periodEnd: string; status: 'active' | 'void' }>({ periodEnd: 1, status: 1 })
+      .project<{ periodEnd: string; status: 'active' | 'void'; createdAt: Date }>({
+        periodEnd: 1,
+        status: 1,
+        createdAt: 1,
+      })
       .toArray();
     const watermark = watermarkOf(existing);
 
@@ -93,7 +101,7 @@ export const POST = route<Context>(async (request, context) => {
 
     const rows = await entries
       .find({ debtorId: debtor._id, deletedAt: null, date: { $lte: periodEndRaw } }, options)
-      .project<{ date: string; amount: number }>({ date: 1, amount: 1 })
+      .project<{ date: string; amount: number; createdAt: Date }>({ date: 1, amount: 1, createdAt: 1 })
       .toArray();
 
     const check = checkSettlement(rows, existing, periodEndRaw, today);

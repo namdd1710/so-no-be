@@ -95,8 +95,11 @@ Toàn bộ nằm trong `lib/ledger.ts` (hàm thuần, có test):
 
 Ghi chú triển khai (chặt hơn BRIEF một chút, để sổ không bao giờ lệch):
 
-- Khoản có `date <= W` bị khoá **sửa, xoá và cả thêm mới** — nếu thêm được vào kỳ đã chốt thì tiền
+- Khoản thuộc kỳ đã chốt bị khoá **sửa, xoá và cả thêm mới** — nếu thêm được vào kỳ đã chốt thì tiền
   sẽ rơi ra khỏi mọi tổng. Thông điệp lỗi chỉ rõ cần huỷ chốt kỳ nào.
+- Ngoại lệ: khoản **đúng ngày W nhưng tạo sau lúc chốt** (so `entry.createdAt` với
+  `settlement.createdAt`) vẫn là nợ mới — chốt buổi sáng, tối con nợ vay tiếp thì thêm được ngay,
+  không phải huỷ chốt. Khoản đó vào kỳ chốt kế tiếp.
 - Chỉ huỷ được **lần chốt gần nhất** đang active.
 - Ngày là chuỗi `YYYY-MM-DD`; `31/09` bị chặn ở cả API lẫn form.
 

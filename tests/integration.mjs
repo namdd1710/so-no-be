@@ -223,8 +223,26 @@ try {
   const deleteLocked = await api('DELETE', `/api/entries/${e2.json.entry.id}`);
   check('xoá khoản đã chốt → 409', deleteLocked.status === 409, deleteLocked.json);
 
-  const backdated = await api('POST', `/api/debtors/${debtor.id}/entries`, { date: yesterday, category: 'Cũ', amount: 5000 });
-  check('thêm khoản vào kỳ đã chốt → 409', backdated.status === 409, backdated.json);
+  const twoDaysAgo = (() => {
+    const d = new Date(`${yesterday}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - 1);
+    return d.toISOString().slice(0, 10);
+  })();
+  const backdated = await api('POST', `/api/debtors/${debtor.id}/entries`, { date: twoDaysAgo, category: 'Cũ', amount: 5000 });
+  check('thêm khoản trước kỳ đã chốt → 409', backdated.status === 409, backdated.json);
+
+  // Sáng chốt, tối cùng ngày vay tiếp: khoản tạo SAU lúc chốt vẫn hợp lệ.
+  const sameDay = await api('POST', `/api/debtors/${debtor.id}/entries`, { date: yesterday, category: 'Vay thêm', amount: 7000 });
+  check('thêm khoản cùng ngày chốt (tạo sau lúc chốt) → 201', sameDay.status === 201, sameDay.json);
+  const afterSameDay = await api('GET', `/api/debtors/${debtor.id}`);
+  check('khoản tối hôm chốt vẫn nằm trong chưa trả = -20000 + 7000', afterSameDay.json?.totals?.unsettled === -13000, afterSameDay.json?.totals);
+  check(
+    'khoản tạo sau lúc chốt vẫn sửa/xoá được',
+    afterSameDay.json?.entries?.find((e) => e.id === sameDay.json?.entry?.id)?.editable === true,
+    afterSameDay.json?.entries?.map((e) => [e.date, e.editable]),
+  );
+  const removedSameDay = await api('DELETE', `/api/entries/${sameDay.json.entry.id}`);
+  check('xoá khoản tạo sau lúc chốt → 200', removedSameDay.status === 200, removedSameDay.json);
 
   const staleSettle = await api('POST', `/api/debtors/${debtor.id}/settle`, { periodEnd: today, expectedWatermark: '' });
   check('chốt với watermark cũ → 409 STALE_WATERMARK', staleSettle.status === 409 && staleSettle.json?.error?.code === 'STALE_WATERMARK', staleSettle.json);

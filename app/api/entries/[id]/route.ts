@@ -1,6 +1,6 @@
 import { getCollections } from '@/lib/db';
 import { ApiError, json, readJson, requireAdmin, requireMutation, route } from '@/lib/http';
-import { checkEntryWritable, todayInTimeZone, watermarkOf } from '@/lib/ledger';
+import { checkEntryWritable, isSettledEntry, todayInTimeZone, watermarkCutoff } from '@/lib/ledger';
 import { rememberCategoryPrices, toObjectId } from '@/lib/service';
 import { parseAmount, parseEntryDate, parseQuantity, parseString } from '@/lib/validate';
 import type { EntryDoc } from '@/lib/types';
@@ -16,9 +16,13 @@ async function loadEntry(id: string) {
   if (!entry) throw new ApiError(404, 'NOT_FOUND', 'Không tìm thấy khoản này');
   const settlementDocs = await settlements
     .find({ debtorId: entry.debtorId })
-    .project<{ periodEnd: string; status: 'active' | 'void' }>({ periodEnd: 1, status: 1 })
+    .project<{ periodEnd: string; status: 'active' | 'void'; createdAt: Date }>({
+      periodEnd: 1,
+      status: 1,
+      createdAt: 1,
+    })
     .toArray();
-  return { entry, watermark: watermarkOf(settlementDocs), entries };
+  return { entry, cutoff: watermarkCutoff(settlementDocs) };
 }
 
 /** PATCH /api/entries/:id — sửa khoản (chặn nếu thuộc kỳ đã chốt). */
@@ -27,13 +31,13 @@ export const PATCH = route<Context>(async (request, context) => {
   requireMutation(request);
 
   const { id } = await context.params;
-  const { entry, watermark, entries } = await loadEntry(id);
+  const { entry, cutoff } = await loadEntry(id);
 
-  if (watermark !== null && entry.date <= watermark) {
+  if (isSettledEntry(entry, cutoff)) {
     throw new ApiError(
       409,
       'LOCKED_PERIOD',
-      `Khoản ngày ${entry.date} thuộc kỳ đã chốt (đến ${watermark}). Huỷ chốt kỳ ${watermark} để sửa.`,
+      `Khoản ngày ${entry.date} thuộc kỳ đã chốt (đến ${cutoff!.date}). Huỷ chốt kỳ ${cutoff!.date} để sửa.`,
     );
   }
 
@@ -43,7 +47,7 @@ export const PATCH = route<Context>(async (request, context) => {
 
   if ('date' in body) {
     const date = parseEntryDate(body.date, today);
-    const guard = checkEntryWritable(date, watermark);
+    const guard = checkEntryWritable(date, cutoff, entry.createdAt);
     if (!guard.ok) throw new ApiError(409, guard.code, guard.message);
     // Nếu request cũng gửi `startDate` thì cặp ngày được kiểm ở nhánh dưới.
     if (!('startDate' in body) && entry.startDate && entry.startDate > date) {
@@ -59,7 +63,7 @@ export const PATCH = route<Context>(async (request, context) => {
       update.entryType = 'single';
     } else {
       const startDate = parseEntryDate(body.startDate, today);
-      const guard = checkEntryWritable(startDate, watermark);
+      const guard = checkEntryWritable(startDate, cutoff, entry.createdAt);
       if (!guard.ok) throw new ApiError(409, guard.code, guard.message);
       const endDate = update.date ?? entry.date;
       if (startDate > endDate) {
@@ -88,6 +92,7 @@ export const PATCH = route<Context>(async (request, context) => {
   }
   if ('note' in body) update.note = parseString(body.note, { field: 'Ghi chú', max: 500 });
 
+  const { entries } = await getCollections();
   const result = await entries.findOneAndUpdate({ _id: entry._id, deletedAt: null }, { $set: update }, { returnDocument: 'after' });
   if (!result) throw new ApiError(404, 'NOT_FOUND', 'Không tìm thấy khoản này');
 
@@ -122,16 +127,17 @@ export const DELETE = route<Context>(async (request, context) => {
   requireMutation(request);
 
   const { id } = await context.params;
-  const { entry, watermark, entries } = await loadEntry(id);
+  const { entry, cutoff } = await loadEntry(id);
 
-  if (watermark !== null && entry.date <= watermark) {
+  if (isSettledEntry(entry, cutoff)) {
     throw new ApiError(
       409,
       'LOCKED_PERIOD',
-      `Khoản ngày ${entry.date} thuộc kỳ đã chốt (đến ${watermark}). Huỷ chốt kỳ ${watermark} để xoá.`,
+      `Khoản ngày ${entry.date} thuộc kỳ đã chốt (đến ${cutoff!.date}). Huỷ chốt kỳ ${cutoff!.date} để xoá.`,
     );
   }
 
+  const { entries } = await getCollections();
   const now = new Date();
   await entries.updateOne({ _id: entry._id, deletedAt: null }, { $set: { deletedAt: now, updatedAt: now } });
 

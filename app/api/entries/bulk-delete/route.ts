@@ -1,7 +1,7 @@
 import type { ObjectId } from 'mongodb';
 import { getCollections } from '@/lib/db';
 import { ApiError, json, readJson, requireAdmin, requireMutation, route } from '@/lib/http';
-import { watermarkOf } from '@/lib/ledger';
+import { isSettledEntry, watermarkCutoff, type Watermark } from '@/lib/ledger';
 import { toObjectId } from '@/lib/service';
 
 export const runtime = 'nodejs';
@@ -38,21 +38,22 @@ export const POST = route(async (request) => {
   const settlementDocs = docs.length
     ? await settlements
         .find({ debtorId: { $in: [...new Set(docs.map((doc) => doc.debtorId.toString()))].map(toObjectId) } })
-        .project<{ debtorId: ObjectId; periodEnd: string; status: 'active' | 'void' }>({
+        .project<{ debtorId: ObjectId; periodEnd: string; status: 'active' | 'void'; createdAt: Date }>({
           debtorId: 1,
           periodEnd: 1,
           status: 1,
+          createdAt: 1,
         })
         .toArray()
     : [];
 
-  const watermarkByDebtor = new Map<string, string | null>();
+  const watermarkByDebtor = new Map<string, Watermark | null>();
   for (const doc of docs) {
     const key = doc.debtorId.toString();
     if (watermarkByDebtor.has(key)) continue;
     watermarkByDebtor.set(
       key,
-      watermarkOf(settlementDocs.filter((settlement) => settlement.debtorId.toString() === key)),
+      watermarkCutoff(settlementDocs.filter((settlement) => settlement.debtorId.toString() === key)),
     );
   }
 
@@ -62,8 +63,8 @@ export const POST = route(async (request) => {
 
   for (const doc of docs) {
     const watermark = watermarkByDebtor.get(doc.debtorId.toString()) ?? null;
-    if (watermark !== null && doc.date <= watermark) {
-      skipped.push({ id: doc._id.toString(), reason: `thuộc kỳ đã chốt đến ${watermark}` });
+    if (isSettledEntry(doc, watermark)) {
+      skipped.push({ id: doc._id.toString(), reason: `thuộc kỳ đã chốt đến ${watermark!.date}` });
     } else {
       deletable.push(doc._id);
     }

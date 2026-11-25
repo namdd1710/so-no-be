@@ -1,6 +1,6 @@
 import { getCollections } from '@/lib/db';
 import { ApiError, json, readJson, requireAdmin, requireMutation, route } from '@/lib/http';
-import { MAX_RANGE_DAYS, checkEntryWritable, daysInRange, todayInTimeZone, watermarkOf } from '@/lib/ledger';
+import { MAX_RANGE_DAYS, checkEntryWritable, daysInRange, todayInTimeZone, watermarkCutoff } from '@/lib/ledger';
 import { findDebtorById, loadLedger, rememberCategoryPrices, toObjectId } from '@/lib/service';
 import { parseAmount, parseEntryDate, parseLedgerQuery, parseQuantity, parseString } from '@/lib/validate';
 import type { EntryDoc, EntryType } from '@/lib/types';
@@ -98,17 +98,23 @@ export const POST = route<Context>(async (request, context) => {
   const { entries, settlements } = await getCollections();
   const settlementDocs = await settlements
     .find({ debtorId: debtor._id })
-    .project<{ periodEnd: string; status: 'active' | 'void' }>({ periodEnd: 1, status: 1 })
+    .project<{ periodEnd: string; status: 'active' | 'void'; createdAt: Date }>({
+      periodEnd: 1,
+      status: 1,
+      createdAt: 1,
+    })
     .toArray();
-  const watermark = watermarkOf(settlementDocs);
+  const watermark = watermarkCutoff(settlementDocs);
+
+  // Khoản tạo bây giờ nên ngày chốt vẫn thêm được — chỉ chặn ngày trước mốc
+  // chốt (khoản tạo sau lúc chốt trong cùng ngày là nợ mới, xem `isSettledEntry`).
+  const now = new Date();
 
   // Cả hai đầu của khoảng đều phải nằm ngoài kỳ đã chốt.
   for (const guardDate of isRange ? [parsedFrom, date] : [date]) {
-    const guard = checkEntryWritable(guardDate, watermark);
+    const guard = checkEntryWritable(guardDate, watermark, now);
     if (!guard.ok) throw new ApiError(409, guard.code, guard.message);
   }
-
-  const now = new Date();
   const docs: Omit<EntryDoc, '_id'>[] = items.map((item) => ({
     debtorId: toObjectId(id),
     date,

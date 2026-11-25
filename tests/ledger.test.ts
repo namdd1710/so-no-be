@@ -13,7 +13,7 @@ import {
   daysInRange,
   filterEntriesByLedgerQuery,
   groupByDate,
-  isLockedBySettlement,
+  isSettledEntry,
   isValidIsoDate,
   isValidMonth,
   monthTotal,
@@ -21,6 +21,7 @@ import {
   settleAmount,
   todayInTimeZone,
   unsettled,
+  watermarkCutoff,
   watermarkOf,
   totalsByCategory,
 } from '../lib/ledger.ts';
@@ -81,7 +82,7 @@ describe('tổng theo khoảng', () => {
 
   it('countRange đếm đúng số khoản trong kỳ', () => {
     assert.equal(countRange(ENTRIES, null, '2026-09-30'), 2);
-    assert.equal(countRange(ENTRIES, '2026-09-30', TODAY), 3);
+    assert.equal(countRange(ENTRIES, { date: '2026-09-30', at: null }, TODAY), 3);
   });
 });
 
@@ -91,12 +92,12 @@ describe('chốt 30/09 với W = null', () => {
   });
 
   it('sau chốt, unsettled chỉ còn khoản > 30/09 và <= hôm nay', () => {
-    assert.equal(unsettled(ENTRIES, '2026-09-30', TODAY), 35000 + 30000 + 120000);
+    assert.equal(unsettled(ENTRIES, { date: '2026-09-30', at: null }, TODAY), 35000 + 30000 + 120000);
   });
 
   it('khoản tương lai không bao giờ vào unsettled', () => {
     const withFuture = [...ENTRIES, { date: '2026-12-01', amount: 5000000 }];
-    assert.equal(unsettled(withFuture, '2026-09-30', TODAY), 185000);
+    assert.equal(unsettled(withFuture, { date: '2026-09-30', at: null }, TODAY), 185000);
   });
 
   it('chốt ngày 30/09 không xoá khoản nào', () => {
@@ -108,7 +109,7 @@ describe('huỷ chốt', () => {
   it('W quay về null thì unsettled trở lại như trước', () => {
     const voided: S = { ...SETTLED_0930, status: 'void' };
     assert.equal(watermarkOf([voided]), null);
-    assert.equal(unsettled(ENTRIES, watermarkOf([voided]), TODAY), 50000 + 75000 + 35000 + 30000 + 120000);
+    assert.equal(unsettled(ENTRIES, watermarkCutoff([voided]), TODAY), 50000 + 75000 + 35000 + 30000 + 120000);
   });
 
   it('W lùi về settlement active trước đó', () => {
@@ -127,13 +128,47 @@ describe('huỷ chốt', () => {
 });
 
 describe('chặn sửa khoản đã chốt', () => {
-  it('khoản <= W bị khoá', () => {
-    assert.equal(isLockedBySettlement('2026-09-30', '2026-09-30'), true);
-    assert.equal(isLockedBySettlement('2026-10-01', '2026-09-30'), false);
+  const cutoff = { date: '2026-09-30', at: new Date('2026-09-30T10:00:00+07:00') };
+
+  it('khoản trước mốc chốt bị khoá', () => {
+    assert.equal(isSettledEntry({ date: '2026-09-29' }, cutoff), true);
+    assert.equal(isSettledEntry({ date: '2026-10-01' }, cutoff), false);
+  });
+
+  it('khoản cùng ngày chốt: tạo trước lúc chốt bị khoá, tạo sau thì không', () => {
+    const sameDayMorning = { date: '2026-09-30', createdAt: new Date('2026-09-30T08:00:00+07:00') };
+    const sameDayEvening = { date: '2026-09-30', createdAt: new Date('2026-09-30T20:00:00+07:00') };
+    assert.equal(isSettledEntry(sameDayMorning, cutoff), true);
+    assert.equal(isSettledEntry(sameDayEvening, cutoff), false);
   });
 
   it('chưa chốt lần nào thì không khoá gì', () => {
-    assert.equal(isLockedBySettlement('2020-01-01', null), false);
+    assert.equal(isSettledEntry({ date: '2020-01-01' }, null), false);
+  });
+});
+
+describe('vay lại trong ngày đã chốt', () => {
+  it('khoản tối 23/11 vẫn thuộc nợ chưa trả, kỳ chốt hôm sau mới gồm nó', () => {
+    const morning = { date: '2026-11-23', amount: 100000, createdAt: new Date('2026-11-23T08:00:00+07:00') };
+    const evening = { date: '2026-11-23', amount: 40000, createdAt: new Date('2026-11-23T19:00:00+07:00') };
+    const settled = { ...morning }; // khoản sáng 23/11 đã được chốt
+    const cutoff23 = { date: '2026-11-23', at: new Date('2026-11-23T10:00:00+07:00') };
+    const entries = [settled, evening];
+
+    assert.equal(unsettled(entries, cutoff23, '2026-11-23'), 40000);
+
+    const check = checkSettlement(
+      entries,
+      [{ periodEnd: '2026-11-23', status: 'active', createdAt: cutoff23.at }],
+      '2026-11-24',
+      '2026-11-24',
+    );
+    assert.equal(check.ok, true);
+    if (check.ok) {
+      assert.equal(check.amount, 40000);
+      assert.equal(check.entryCount, 1);
+      assert.equal(check.periodStart, '2026-11-23');
+    }
   });
 });
 
@@ -255,7 +290,7 @@ describe('kịch bản trọn vòng đời (BRIEF §12)', () => {
     assert.equal(settled.entryCount, 2);
 
     const settlements: S[] = [{ ...settled, status: 'active' }];
-    const w = watermarkOf(settlements);
+    const w = watermarkCutoff(settlements);
 
     // 3. Khoản cũ rời khỏi "chưa thanh toán"
     assert.equal(unsettled(entries, w, TODAY), 0);
@@ -266,7 +301,7 @@ describe('kịch bản trọn vòng đời (BRIEF §12)', () => {
 
     // 5. Huỷ chốt → tổng trở lại như trước khi chốt
     settlements[0] = { ...settlements[0], status: 'void' };
-    assert.equal(unsettled(entries, watermarkOf(settlements), TODAY), 185000);
+    assert.equal(unsettled(entries, watermarkCutoff(settlements), TODAY), 185000);
   });
 });
 
@@ -283,7 +318,7 @@ test('addDaysIso advances calendar day', () => {
 });
 
 test('filterEntriesByLedgerQuery status unsettled / settled / all', () => {
-  const base = { month: null, from: null, to: null, today: '2026-11-11', watermark: '2026-10-31' };
+  const base = { month: null, from: null, to: null, today: '2026-11-11', watermark: { date: '2026-10-31', at: null } };
   assert.deepEqual(
     filterEntriesByLedgerQuery(SAMPLE, { ...base, status: 'unsettled' }).map((e) => e.date),
     ['2026-11-01', '2026-11-10', '2026-11-11'],

@@ -10,11 +10,13 @@ import { getCollections } from './db';
 import {
   filterEntriesByLedgerQuery,
   groupByDate,
+  isSettledEntry,
   settleAmount,
   settleCount,
   todayInTimeZone,
   unsettled,
-  watermarkOf,
+  watermarkCutoff,
+  type Watermark,
   latestActiveSettlement,
   isValidMonth,
   paginateDayGroups,
@@ -74,7 +76,7 @@ export function toSettlementJson(doc: SettlementDoc): SettlementJson {
   };
 }
 
-function toEntryJson(doc: EntryDoc, watermark: string | null): EntryJson {
+function toEntryJson(doc: EntryDoc, watermark: Watermark | null): EntryJson {
   return {
     id: doc._id.toString(),
     date: doc.date,
@@ -87,7 +89,7 @@ function toEntryJson(doc: EntryDoc, watermark: string | null): EntryJson {
     startDate: doc.startDate ?? null,
     endDate: doc.startDate ? doc.date : null,
     note: doc.note ?? '',
-    editable: watermark === null || doc.date > watermark,
+    editable: !isSettledEntry(doc, watermark),
     createdAt: iso(doc.createdAt) ?? '',
     updatedAt: iso(doc.updatedAt) ?? '',
   };
@@ -109,11 +111,11 @@ export async function findDebtorByCode(code: string): Promise<DebtorDoc | null> 
 
 function summarise(
   debtor: DebtorDoc,
-  entries: { date: string; amount: number }[],
+  entries: { date: string; amount: number; createdAt?: Date | null }[],
   settlements: SettlementDoc[],
   today: string,
 ): DebtorSummary {
-  const watermark = watermarkOf(settlements);
+  const watermark = watermarkCutoff(settlements);
   const active = settlements.filter((s) => s.status === 'active');
   const latest = latestActiveSettlement(settlements);
   return {
@@ -157,17 +159,23 @@ export async function listDebtors(options: ListDebtorsOptions = {}): Promise<Deb
   const [entryRows, settlementRows] = await Promise.all([
     entries
       .find({ debtorId: { $in: ids }, deletedAt: null, date: { $lte: today } })
-      .project<{ debtorId: ObjectId; date: string; amount: number }>({ debtorId: 1, date: 1, amount: 1 })
+      .project<{ debtorId: ObjectId; date: string; amount: number; createdAt: Date }>({
+        debtorId: 1,
+        date: 1,
+        amount: 1,
+        createdAt: 1,
+      })
       .toArray(),
     settlements.find({ debtorId: { $in: ids } }).sort({ periodEnd: 1 }).toArray(),
   ]);
 
-  const entriesByDebtor = new Map<string, { date: string; amount: number }[]>();
+  const entriesByDebtor = new Map<string, { date: string; amount: number; createdAt: Date }[]>();
   for (const row of entryRows) {
     const key = row.debtorId.toString();
+    const item = { date: row.date, amount: row.amount, createdAt: row.createdAt };
     const bucket = entriesByDebtor.get(key);
-    if (bucket) bucket.push({ date: row.date, amount: row.amount });
-    else entriesByDebtor.set(key, [{ date: row.date, amount: row.amount }]);
+    if (bucket) bucket.push(item);
+    else entriesByDebtor.set(key, [item]);
   }
 
   const settlementsByDebtor = new Map<string, SettlementDoc[]>();
@@ -329,7 +337,8 @@ export async function loadLedger(debtorId: string, query: LedgerQueryInput = {})
     confirmations.find({ debtorId: debtor._id }).sort({ declaredAt: -1 }).limit(30).toArray(),
   ]);
 
-  const watermark = watermarkOf(settlementDocs);
+  const cutoff = watermarkCutoff(settlementDocs);
+  const watermark = cutoff?.date ?? null;
   const status = query.status ?? 'all';
   const month = query.month && isValidMonth(query.month) ? query.month : null;
   const from = query.from ?? null;
@@ -343,10 +352,10 @@ export async function loadLedger(debtorId: string, query: LedgerQueryInput = {})
     from,
     to,
     today,
-    watermark,
+    watermark: cutoff,
   });
 
-  const visibleEntries = filteredDocs.map((doc) => toEntryJson(doc, watermark));
+  const visibleEntries = filteredDocs.map((doc) => toEntryJson(doc, cutoff));
   const allGroups = groupByDate(visibleEntries).map((group) => ({
     date: group.date,
     total: group.total,
@@ -373,12 +382,12 @@ export async function loadLedger(debtorId: string, query: LedgerQueryInput = {})
     watermark,
     latestSettlement: latestActiveSettlement(settlementDocs) ? toSettlementJson(latestActiveSettlement(settlementDocs)!) : null,
     totals: {
-      unsettled: unsettled(entryDocs, watermark, today),
+      unsettled: unsettled(entryDocs, cutoff, today),
       settled: active.reduce((sum, s) => sum + s.amount, 0),
       monthTotal: filterTotal,
-      unsettledCount: settleCount(entryDocs, watermark, today),
-      settlePreview: settleAmount(entryDocs, watermark, today),
-      settlePreviewCount: settleCount(entryDocs, watermark, today),
+      unsettledCount: settleCount(entryDocs, cutoff, today),
+      settlePreview: settleAmount(entryDocs, cutoff, today),
+      settlePreviewCount: settleCount(entryDocs, cutoff, today),
     },
     entries: groups.flatMap((g) => g.entries),
     groups,
@@ -410,7 +419,8 @@ export async function loadPublicLedger(code: string, query: LedgerQueryInput = {
     confirmations.find({ debtorId: debtor._id }).sort({ declaredAt: -1 }).limit(20).toArray(),
   ]);
 
-  const watermark = watermarkOf(settlementDocs);
+  const cutoff = watermarkCutoff(settlementDocs);
+  const watermark = cutoff?.date ?? null;
   const status = query.status ?? 'all';
   const month = query.month && isValidMonth(query.month) ? query.month : null;
   const from = query.from ?? null;
@@ -424,7 +434,7 @@ export async function loadPublicLedger(code: string, query: LedgerQueryInput = {
     from,
     to,
     today,
-    watermark,
+    watermark: cutoff,
   });
 
   // Chỉ trường công khai: KHÔNG phone, KHÔNG note nội bộ, KHÔNG accessCode.
@@ -457,7 +467,7 @@ export async function loadPublicLedger(code: string, query: LedgerQueryInput = {
   // Ngày bắt đầu của phần còn nợ: lấy mốc sớm nhất trong các khoản chưa chốt
   // (khoảng ngày thì tính từ startDate). Chưa chốt lần nào thì tính từ khoản
   // đầu tiên, để nội dung chuyển khoản luôn đủ "từ ngày … đến ngày …".
-  const unpaidDocs = watermark ? entryDocs.filter((doc) => doc.date > watermark) : entryDocs;
+  const unpaidDocs = entryDocs.filter((doc) => !isSettledEntry(doc, cutoff));
   const debtFrom = unpaidDocs.reduce<string | null>((min, doc) => {
     const start = doc.startDate ?? doc.date;
     return min === null || start < min ? start : min;
@@ -470,8 +480,8 @@ export async function loadPublicLedger(code: string, query: LedgerQueryInput = {
     debtFrom,
     latestSettlement: latest ? { periodEnd: latest.periodEnd, amount: latest.amount } : null,
     totals: {
-      unsettled: unsettled(entryDocs, watermark, today),
-      unsettledCount: settleCount(entryDocs, watermark, today),
+      unsettled: unsettled(entryDocs, cutoff, today),
+      unsettledCount: settleCount(entryDocs, cutoff, today),
       settled: active.reduce((sum, s) => sum + s.amount, 0),
       monthTotal: filterTotal,
     },
